@@ -169,7 +169,13 @@ func responseError(action string, id int, resp *http.Response) error {
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 	suffix := strings.TrimSpace(string(body))
 	if id > 0 {
-		return fmt.Errorf("%s %d failed with status %d: %s", action, id, resp.StatusCode, suffix)
+		if suffix != "" {
+			return fmt.Errorf("%s %d failed with status %d: %s", action, id, resp.StatusCode, suffix)
+		}
+		return fmt.Errorf("%s %d failed with status %d", action, id, resp.StatusCode)
 	}
-	return fmt.Errorf("%s failed with status %d: %s", action, resp.StatusCode, suffix)
+	if suffix != "" {
+		return fmt.Errorf("%s failed with status %d: %s", action, resp.StatusCode, suffix)
+	}
+	return fmt.Errorf("%s failed with status %d", action, resp.StatusCode)
 }

@@ -56,8 +56,9 @@ func DownloadAttachments(ctx context.Context, downloader AttachmentDownloader, o
 			return nil, fmt.Errorf("downloading attachment %q for work item %d: %w", filename, item.ID, err)
 		}
 
+		diskPath := filepath.Join(itemDir, filename)
 		relativePath := filepath.ToSlash(filepath.Join("attachments", strconv.Itoa(item.ID), filename))
-		if err := os.WriteFile(filepath.Join(outputDir, relativePath), data, 0o644); err != nil {
+		if err := os.WriteFile(diskPath, data, 0o644); err != nil {
 			return nil, fmt.Errorf("writing attachment %q for work item %d: %w", filename, item.ID, err)
 		}
 		summaries = append(summaries, AttachmentSummary{

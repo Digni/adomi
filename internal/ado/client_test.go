@@ -77,6 +77,28 @@ func TestClientFetchWorkItemReturnsNon2xxError(t *testing.T) {
 	}
 }
 
+func TestClientFetchWorkItemReturnsCleanNon2xxErrorWithEmptyBody(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	t.Cleanup(server.Close)
+	client, err := NewClient(server.Client(), ClientConfig{BaseURL: server.URL, Project: "Project", APIVersion: "7.1", PAT: "secret"})
+	if err != nil {
+		t.Fatalf("NewClient returned error: %v", err)
+	}
+
+	_, err = client.FetchWorkItem(context.Background(), 1)
+	if err == nil {
+		t.Fatal("FetchWorkItem error = nil, want error")
+	}
+	if strings.HasSuffix(err.Error(), ":") {
+		t.Fatalf("error = %q, want no dangling colon", err.Error())
+	}
+	if !strings.Contains(err.Error(), "500") {
+		t.Fatalf("error = %q, want status code", err.Error())
+	}
+}
+
 func TestClientFetchWorkItemRejectsMismatchedID(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, `{"id":999,"fields":{"System.Title":"Wrong"}}`)
