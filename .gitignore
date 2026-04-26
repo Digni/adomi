@@ -2,6 +2,7 @@
 # https://github.com/github/gitignore/blob/main/community/Golang/Go.AllowList.gitignore
 #
 # Binaries for programs and plugins
+bin/
 *.exe
 *.exe~
 *.dll
@@ -12,10 +13,14 @@
 *.test
 
 # Code coverage profiles and other test artifacts
+coverage.out
 *.out
 coverage.*
 *.coverprofile
 profile.cov
+
+# Local adomi context cache
+.adomi/
 
 # Dependency directories (remove the comment below to include it)
 # vendor/
