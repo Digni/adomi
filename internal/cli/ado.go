@@ -3,19 +3,22 @@ package cli
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
 	"github.com/Digni/adomi/internal/ado"
+	"github.com/Digni/adomi/internal/config"
 	"golang.org/x/term"
 )
 
 func (r Runner) runADO(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: adomi ado <fetch|login|logout|profiles>")
+		return fmt.Errorf("usage: adomi ado <fetch|login|logout|profiles|config>")
 	}
 
 	switch args[0] {
@@ -26,17 +29,22 @@ func (r Runner) runADO(args []string, stdin io.Reader, stdout, stderr io.Writer)
 	case "logout":
 		return r.runADOLogout(args[1:])
 	case "profiles":
-		if len(args) == 2 && args[1] == "list" {
-			return r.runADOProfilesList(stdout)
+		if len(args) >= 2 && args[1] == "list" {
+			return r.runADOProfilesList(args[2:], stdout)
 		}
 		return fmt.Errorf("usage: adomi ado profiles list")
+	case "config":
+		if len(args) >= 2 && args[1] == "init" {
+			return r.runADOConfigInit(args[2:], stdout)
+		}
+		return fmt.Errorf("usage: adomi ado config init [--global]")
 	default:
 		return fmt.Errorf("unknown ado command %q", args[0])
 	}
 }
 
 func (r Runner) runADOFetch(args []string, stdout io.Writer) error {
-	workItemID, profile, err := parseFetchArgs(args)
+	fetchArgs, err := parseFetchArgs(args)
 	if err != nil {
 		return err
 	}
@@ -46,7 +54,11 @@ func (r Runner) runADOFetch(args []string, stdout io.Writer) error {
 	if err != nil {
 		return err
 	}
-	loaded, err := deps.LoadConfig(repoRoot, homeDir, profile)
+	scope := config.DefaultScope
+	if fetchArgs.global {
+		scope = config.GlobalScope
+	}
+	loaded, err := deps.LoadConfig(repoRoot, homeDir, fetchArgs.profile, scope)
 	if err != nil {
 		return err
 	}
@@ -71,7 +83,7 @@ func (r Runner) runADOFetch(args []string, stdout io.Writer) error {
 	}
 
 	ctx := context.Background()
-	tree, err := deps.FetchTree(ctx, client, workItemID)
+	tree, err := deps.FetchTree(ctx, client, fetchArgs.workItemID)
 	if err != nil {
 		return err
 	}
@@ -139,18 +151,110 @@ func (r Runner) runADOLogout(args []string) error {
 	return r.dependencies().PATStore.Delete(profile)
 }
 
-func (r Runner) runADOProfilesList(stdout io.Writer) error {
-	deps := r.dependencies()
-	repoRoot, homeDir, err := resolveLocations(deps)
+func (r Runner) runADOProfilesList(args []string, stdout io.Writer) error {
+	global, err := parseGlobalFlag(args)
 	if err != nil {
 		return err
 	}
-	loaded, err := deps.LoadAllConfig(repoRoot, homeDir)
+	deps := r.dependencies()
+	repoRoot := ""
+	scope := config.DefaultScope
+	homeDir, err := deps.UserHomeDir()
+	if err != nil {
+		return fmt.Errorf("getting home directory: %w", err)
+	}
+	if global {
+		scope = config.GlobalScope
+	} else {
+		cwd, err := deps.Getwd()
+		if err != nil {
+			return fmt.Errorf("getting current directory: %w", err)
+		}
+		repoRoot, err = deps.FindRepoRoot(cwd)
+		if err != nil {
+			return err
+		}
+	}
+	loaded, err := deps.LoadAllConfig(repoRoot, homeDir, scope)
 	if err != nil {
 		return err
 	}
 	for _, profile := range loaded.ProfileNames() {
 		fmt.Fprintln(stdout, profile)
+	}
+	return nil
+}
+
+func (r Runner) runADOConfigInit(args []string, stdout io.Writer) error {
+	global, err := parseGlobalFlag(args)
+	if err != nil {
+		return err
+	}
+	deps := r.dependencies()
+
+	var repoRoot string
+	var homeDir string
+	if global {
+		homeDir, err = deps.UserHomeDir()
+		if err != nil {
+			return fmt.Errorf("getting home directory: %w", err)
+		}
+		if cwd, err := deps.Getwd(); err == nil {
+			if resolved, err := deps.FindRepoRoot(cwd); err == nil {
+				repoRoot = resolved
+			}
+		}
+	} else {
+		cwd, err := deps.Getwd()
+		if err != nil {
+			return fmt.Errorf("getting current directory: %w", err)
+		}
+		repoRoot, err = deps.FindRepoRoot(cwd)
+		if err != nil {
+			return err
+		}
+	}
+
+	targetPath := config.RepoConfigPath(repoRoot)
+	if global {
+		targetPath = config.GlobalConfigPath(homeDir)
+	}
+
+	values := config.DefaultInitTemplateValues()
+	if repoRoot != "" {
+		if remotes, err := deps.RemoteURLs(repoRoot); err == nil {
+			if detected, ok := config.InitTemplateValuesFromRemotes(remotes); ok {
+				values = detected
+			}
+		}
+	}
+
+	if err := writeNewFile(targetPath, []byte(config.RenderInitTemplate(values)), 0o644); err != nil {
+		return err
+	}
+	fmt.Fprintln(stdout, targetPath)
+	return nil
+}
+
+func writeNewFile(path string, data []byte, perm os.FileMode) error {
+	if _, err := os.Stat(path); err == nil {
+		return fmt.Errorf("config %s already exists", path)
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("checking config %s: %w", path, err)
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return fmt.Errorf("creating config directory: %w", err)
+	}
+	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, perm)
+	if err != nil {
+		if errors.Is(err, os.ErrExist) {
+			return fmt.Errorf("config %s already exists", path)
+		}
+		return fmt.Errorf("writing config %s: %w", path, err)
+	}
+	defer file.Close()
+	if _, err := file.Write(data); err != nil {
+		return fmt.Errorf("writing config %s: %w", path, err)
 	}
 	return nil
 }
@@ -176,7 +280,7 @@ func parseProfileFlag(args []string, required bool) (string, error) {
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
 		case "--profile":
-			if i+1 >= len(args) || args[i+1] == "" {
+			if i+1 >= len(args) || args[i+1] == "" || strings.HasPrefix(args[i+1], "-") {
 				return "", fmt.Errorf("--profile requires a value")
 			}
 			profile = args[i+1]
@@ -191,17 +295,48 @@ func parseProfileFlag(args []string, required bool) (string, error) {
 	return profile, nil
 }
 
-func parseFetchArgs(args []string) (int, string, error) {
+type fetchArgs struct {
+	workItemID int
+	profile    string
+	global     bool
+}
+
+func parseFetchArgs(args []string) (fetchArgs, error) {
 	if len(args) == 0 {
-		return 0, "", fmt.Errorf("usage: adomi ado fetch <work-item-id> [--profile <profile-name>]")
+		return fetchArgs{}, fmt.Errorf("usage: adomi ado fetch <work-item-id> [--profile <profile-name>] [--global]")
 	}
 	workItemID, err := strconv.Atoi(args[0])
 	if err != nil || workItemID <= 0 {
-		return 0, "", fmt.Errorf("work item ID must be a positive integer")
+		return fetchArgs{}, fmt.Errorf("work item ID must be a positive integer")
 	}
-	profile, err := parseProfileFlag(args[1:], false)
-	if err != nil {
-		return 0, "", err
+	var profile string
+	var global bool
+	for i := 1; i < len(args); i++ {
+		switch args[i] {
+		case "--profile":
+			if i+1 >= len(args) || args[i+1] == "" || strings.HasPrefix(args[i+1], "-") {
+				return fetchArgs{}, fmt.Errorf("--profile requires a value")
+			}
+			profile = args[i+1]
+			i++
+		case "--global":
+			global = true
+		default:
+			return fetchArgs{}, fmt.Errorf("unknown argument %q", args[i])
+		}
 	}
-	return workItemID, profile, nil
+	return fetchArgs{workItemID: workItemID, profile: profile, global: global}, nil
+}
+
+func parseGlobalFlag(args []string) (bool, error) {
+	var global bool
+	for _, arg := range args {
+		switch arg {
+		case "--global":
+			global = true
+		default:
+			return false, fmt.Errorf("unknown argument %q", arg)
+		}
+	}
+	return global, nil
 }

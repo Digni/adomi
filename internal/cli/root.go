@@ -6,6 +6,8 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"os/exec"
+	"strings"
 	"time"
 
 	"github.com/Digni/adomi/internal/ado"
@@ -40,8 +42,9 @@ type Dependencies struct {
 	Getwd         func() (string, error)
 	UserHomeDir   func() (string, error)
 	FindRepoRoot  func(start string) (string, error)
-	LoadConfig    func(repoRoot, homeDir, requestedProfile string) (*config.Loaded, error)
-	LoadAllConfig func(repoRoot, homeDir string) (*config.Loaded, error)
+	LoadConfig    func(repoRoot, homeDir, requestedProfile string, scope config.Scope) (*config.Loaded, error)
+	LoadAllConfig func(repoRoot, homeDir string, scope config.Scope) (*config.Loaded, error)
+	RemoteURLs    func(repoRoot string) ([]string, error)
 	NewHTTPClient func(proxyURL string) (*http.Client, error)
 	NewADOClient  func(httpClient *http.Client, cfg ado.ClientConfig) (ADOClient, error)
 	FetchTree     func(ctx context.Context, fetcher ado.WorkItemFetcher, rootID int) (*ado.WorkItemTree, error)
@@ -90,6 +93,9 @@ func (r Runner) dependencies() Dependencies {
 	if deps.LoadAllConfig == nil {
 		deps.LoadAllConfig = defaults.LoadAllConfig
 	}
+	if deps.RemoteURLs == nil {
+		deps.RemoteURLs = defaults.RemoteURLs
+	}
 	if deps.NewHTTPClient == nil {
 		deps.NewHTTPClient = defaults.NewHTTPClient
 	}
@@ -115,8 +121,9 @@ func defaultDependencies() Dependencies {
 		Getwd:         os.Getwd,
 		UserHomeDir:   os.UserHomeDir,
 		FindRepoRoot:  workspace.FindRepoRoot,
-		LoadConfig:    config.Load,
-		LoadAllConfig: config.LoadAll,
+		LoadConfig:    config.LoadWithScope,
+		LoadAllConfig: config.LoadAllWithScope,
+		RemoteURLs:    gitRemoteURLs,
 		NewHTTPClient: ado.NewHTTPClient,
 		NewADOClient: func(httpClient *http.Client, cfg ado.ClientConfig) (ADOClient, error) {
 			return ado.NewClient(httpClient, cfg)
@@ -125,4 +132,22 @@ func defaultDependencies() Dependencies {
 		ExportContext: ado.ExportContext,
 		Now:           time.Now,
 	}
+}
+
+func gitRemoteURLs(repoRoot string) ([]string, error) {
+	output, err := exec.Command("git", "-C", repoRoot, "remote", "-v").Output()
+	if err != nil {
+		return nil, err
+	}
+	seen := map[string]bool{}
+	var urls []string
+	for _, line := range strings.Split(string(output), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 2 || seen[fields[1]] {
+			continue
+		}
+		seen[fields[1]] = true
+		urls = append(urls, fields[1])
+	}
+	return urls, nil
 }

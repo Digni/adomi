@@ -111,9 +111,12 @@ func TestADOProfilesListPrintsConfiguredProfiles(t *testing.T) {
 		Getwd:        func() (string, error) { return "/repo/subdir", nil },
 		UserHomeDir:  func() (string, error) { return "/home/me", nil },
 		FindRepoRoot: func(string) (string, error) { return "/repo", nil },
-		LoadAllConfig: func(repoRoot, homeDir string) (*config.Loaded, error) {
+		LoadAllConfig: func(repoRoot, homeDir string, scope config.Scope) (*config.Loaded, error) {
 			if repoRoot != "/repo" || homeDir != "/home/me" {
 				t.Fatalf("LoadAllConfig args = %q %q", repoRoot, homeDir)
+			}
+			if scope != config.DefaultScope {
+				t.Fatalf("scope = %v, want default", scope)
 			}
 			return &config.Loaded{Config: config.File{AzureDevOps: config.AzureDevOpsConfig{Profiles: map[string]config.Profile{
 				"second": {},
@@ -144,9 +147,12 @@ func TestADOFetchPrintsOnlyExportedPath(t *testing.T) {
 		Getwd:        func() (string, error) { return "/repo/subdir", nil },
 		UserHomeDir:  func() (string, error) { return "/home/me", nil },
 		FindRepoRoot: func(start string) (string, error) { return "/repo", nil },
-		LoadConfig: func(repoRoot, homeDir, requestedProfile string) (*config.Loaded, error) {
+		LoadConfig: func(repoRoot, homeDir, requestedProfile string, scope config.Scope) (*config.Loaded, error) {
 			if requestedProfile != "company-cloud" {
 				t.Fatalf("requested profile = %q, want company-cloud", requestedProfile)
+			}
+			if scope != config.DefaultScope {
+				t.Fatalf("scope = %v, want default", scope)
 			}
 			return &config.Loaded{Profile: config.Profile{
 				Name:       "company-cloud",
@@ -206,7 +212,7 @@ func TestADOFetchLeavesStdoutEmptyOnError(t *testing.T) {
 		Getwd:        func() (string, error) { return "/repo", nil },
 		UserHomeDir:  func() (string, error) { return "/home/me", nil },
 		FindRepoRoot: func(string) (string, error) { return "/repo", nil },
-		LoadConfig: func(repoRoot, homeDir, requestedProfile string) (*config.Loaded, error) {
+		LoadConfig: func(repoRoot, homeDir, requestedProfile string, scope config.Scope) (*config.Loaded, error) {
 			return &config.Loaded{Profile: config.Profile{Name: "company-cloud", BaseURL: "https://dev.azure.com/org", Project: "MyProject", APIVersion: "7.1"}}, nil
 		},
 	}}
@@ -232,6 +238,7 @@ func TestADOFetchRejectsInvalidArgs(t *testing.T) {
 		{name: "zero ID", args: []string{"ado", "fetch", "0"}, want: "positive"},
 		{name: "negative ID", args: []string{"ado", "fetch", "-1"}, want: "positive"},
 		{name: "missing profile value", args: []string{"ado", "fetch", "12345", "--profile"}, want: "--profile"},
+		{name: "flag as profile value", args: []string{"ado", "fetch", "12345", "--profile", "--global"}, want: "--profile requires a value"},
 		{name: "unknown flag", args: []string{"ado", "fetch", "12345", "--unknown"}, want: "unknown"},
 	}
 
@@ -246,6 +253,304 @@ func TestADOFetchRejectsInvalidArgs(t *testing.T) {
 				t.Fatalf("error = %q, want substring %q", err.Error(), tt.want)
 			}
 		})
+	}
+}
+
+func TestADOFetchGlobalStillRequiresRepo(t *testing.T) {
+	loadConfigCalled := false
+	runner := Runner{deps: Dependencies{
+		PATStore:    &fakePATStore{values: map[string]string{"home": "secret-pat"}},
+		Getwd:       func() (string, error) { return "/outside", nil },
+		UserHomeDir: func() (string, error) { return "/home/me", nil },
+		FindRepoRoot: func(string) (string, error) {
+			return "", errors.New("not a repo")
+		},
+		LoadConfig: func(repoRoot, homeDir, requestedProfile string, scope config.Scope) (*config.Loaded, error) {
+			loadConfigCalled = true
+			return nil, errors.New("should not load config")
+		},
+	}}
+
+	err := runner.Run([]string{"ado", "fetch", "12345", "--global", "--profile", "home"}, strings.NewReader(""), &bytes.Buffer{}, &bytes.Buffer{})
+	if err == nil {
+		t.Fatal("Run error = nil, want repo error")
+	}
+	if loadConfigCalled {
+		t.Fatal("LoadConfig was called after repo resolution failed")
+	}
+}
+
+func TestADOFetchGlobalUsesGlobalConfigScope(t *testing.T) {
+	store := &fakePATStore{values: map[string]string{"home": "secret-pat"}}
+	fakeClient := fakeADOClient{}
+	tree := &ado.WorkItemTree{RootID: 12345, WorkItems: []ado.WorkItem{{ID: 12345}}}
+	runner := Runner{deps: Dependencies{
+		PATStore:     store,
+		Getwd:        func() (string, error) { return "/repo/subdir", nil },
+		UserHomeDir:  func() (string, error) { return "/home/me", nil },
+		FindRepoRoot: func(start string) (string, error) { return "/repo", nil },
+		LoadConfig: func(repoRoot, homeDir, requestedProfile string, scope config.Scope) (*config.Loaded, error) {
+			if repoRoot != "/repo" || homeDir != "/home/me" || requestedProfile != "home" {
+				t.Fatalf("LoadConfig args = %q %q %q", repoRoot, homeDir, requestedProfile)
+			}
+			if scope != config.GlobalScope {
+				t.Fatalf("scope = %v, want global", scope)
+			}
+			return &config.Loaded{Profile: config.Profile{Name: "home", BaseURL: "https://dev.azure.com/home", Project: "MyProject", APIVersion: "7.1"}}, nil
+		},
+		NewHTTPClient: func(proxy string) (*http.Client, error) { return http.DefaultClient, nil },
+		NewADOClient:  func(httpClient *http.Client, cfg ado.ClientConfig) (ADOClient, error) { return fakeClient, nil },
+		FetchTree: func(ctx context.Context, fetcher ado.WorkItemFetcher, rootID int) (*ado.WorkItemTree, error) {
+			return tree, nil
+		},
+		ExportContext: func(ctx context.Context, downloader ado.AttachmentDownloader, opts ado.ExportOptions, gotTree *ado.WorkItemTree) (string, error) {
+			if opts.RepoRoot != "/repo" {
+				t.Fatalf("repo root = %q, want /repo", opts.RepoRoot)
+			}
+			return "/repo/.adomi/azure-devops/home/MyProject/work-items/12345", nil
+		},
+	}}
+	var stdout bytes.Buffer
+
+	err := runner.Run([]string{"ado", "fetch", "12345", "--global", "--profile", "home"}, strings.NewReader(""), &stdout, &bytes.Buffer{})
+	if err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+}
+
+func TestADOProfilesListGlobalDoesNotRequireRepo(t *testing.T) {
+	findRepoRootCalled := false
+	runner := Runner{deps: Dependencies{
+		Getwd:       func() (string, error) { return "/outside", nil },
+		UserHomeDir: func() (string, error) { return "/home/me", nil },
+		FindRepoRoot: func(string) (string, error) {
+			findRepoRootCalled = true
+			return "", errors.New("not a repo")
+		},
+		LoadAllConfig: func(repoRoot, homeDir string, scope config.Scope) (*config.Loaded, error) {
+			if repoRoot != "" || homeDir != "/home/me" || scope != config.GlobalScope {
+				t.Fatalf("LoadAllConfig args = %q %q %v", repoRoot, homeDir, scope)
+			}
+			return &config.Loaded{Config: config.File{AzureDevOps: config.AzureDevOpsConfig{Profiles: map[string]config.Profile{"home": {}}}}}, nil
+		},
+	}}
+	var stdout bytes.Buffer
+
+	err := runner.Run([]string{"ado", "profiles", "list", "--global"}, strings.NewReader(""), &stdout, &bytes.Buffer{})
+	if err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+	if findRepoRootCalled {
+		t.Fatal("FindRepoRoot was called for global profile listing")
+	}
+	if strings.TrimSpace(stdout.String()) != "home" {
+		t.Fatalf("stdout = %q, want home", stdout.String())
+	}
+}
+
+func TestADOProfilesListRejectsUnknownArgs(t *testing.T) {
+	runner := Runner{deps: Dependencies{}}
+
+	err := runner.Run([]string{"ado", "profiles", "list", "--unknown"}, strings.NewReader(""), &bytes.Buffer{}, &bytes.Buffer{})
+	if err == nil {
+		t.Fatal("Run error = nil, want error")
+	}
+	if !strings.Contains(err.Error(), "unknown") {
+		t.Fatalf("error = %q, want unknown argument", err.Error())
+	}
+}
+
+func TestADOUsageIncludesConfigCommand(t *testing.T) {
+	runner := Runner{deps: Dependencies{}}
+
+	err := runner.Run([]string{"ado"}, strings.NewReader(""), &bytes.Buffer{}, &bytes.Buffer{})
+	if err == nil {
+		t.Fatal("Run error = nil, want usage error")
+	}
+	if !strings.Contains(err.Error(), "config") {
+		t.Fatalf("error = %q, want config command in usage", err.Error())
+	}
+}
+
+func TestADOLoginRejectsGlobalFlag(t *testing.T) {
+	runner := Runner{deps: Dependencies{PATStore: &fakePATStore{}}}
+
+	err := runner.Run([]string{"ado", "login", "--global", "--profile", "company-cloud"}, strings.NewReader("secret\n"), &bytes.Buffer{}, &bytes.Buffer{})
+	if err == nil {
+		t.Fatal("Run error = nil, want error")
+	}
+	if !strings.Contains(err.Error(), "unknown") {
+		t.Fatalf("error = %q, want unknown argument", err.Error())
+	}
+}
+
+func TestADOConfigInitCreatesRepoConfig(t *testing.T) {
+	repoRoot := t.TempDir()
+	runner := Runner{deps: Dependencies{
+		Getwd:        func() (string, error) { return filepath.Join(repoRoot, "subdir"), nil },
+		UserHomeDir:  func() (string, error) { return "", errors.New("home should not be required") },
+		FindRepoRoot: func(string) (string, error) { return repoRoot, nil },
+		RemoteURLs:   func(string) ([]string, error) { return nil, nil },
+	}}
+	var stdout bytes.Buffer
+
+	err := runner.Run([]string{"ado", "config", "init"}, strings.NewReader(""), &stdout, &bytes.Buffer{})
+	if err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+	configPath := filepath.Join(repoRoot, ".adomi", "config.yaml")
+	if strings.TrimSpace(stdout.String()) != configPath {
+		t.Fatalf("stdout = %q, want config path", stdout.String())
+	}
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("reading config: %v", err)
+	}
+	assertAllCommented(t, string(data))
+}
+
+func TestADOConfigInitOutsideRepoReturnsError(t *testing.T) {
+	homeDir := t.TempDir()
+	runner := Runner{deps: Dependencies{
+		Getwd:       func() (string, error) { return "/outside", nil },
+		UserHomeDir: func() (string, error) { return homeDir, nil },
+		FindRepoRoot: func(string) (string, error) {
+			return "", errors.New("not a repo")
+		},
+	}}
+
+	err := runner.Run([]string{"ado", "config", "init"}, strings.NewReader(""), &bytes.Buffer{}, &bytes.Buffer{})
+	if err == nil {
+		t.Fatal("Run error = nil, want repo error")
+	}
+	if _, statErr := os.Stat(filepath.Join(homeDir, ".config", "adomi", "config.yaml")); !os.IsNotExist(statErr) {
+		t.Fatalf("global config stat = %v, want not exist", statErr)
+	}
+}
+
+func TestADOConfigInitGlobalCreatesHomeConfigOutsideRepo(t *testing.T) {
+	homeDir := t.TempDir()
+	runner := Runner{deps: Dependencies{
+		Getwd:       func() (string, error) { return "/outside", nil },
+		UserHomeDir: func() (string, error) { return homeDir, nil },
+		FindRepoRoot: func(string) (string, error) {
+			return "", errors.New("not a repo")
+		},
+	}}
+	var stdout bytes.Buffer
+
+	err := runner.Run([]string{"ado", "config", "init", "--global"}, strings.NewReader(""), &stdout, &bytes.Buffer{})
+	if err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+	configPath := filepath.Join(homeDir, ".config", "adomi", "config.yaml")
+	if strings.TrimSpace(stdout.String()) != configPath {
+		t.Fatalf("stdout = %q, want global config path", stdout.String())
+	}
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("reading config: %v", err)
+	}
+	assertAllCommented(t, string(data))
+}
+
+func TestADOConfigInitRefusesOverwrite(t *testing.T) {
+	repoRoot := t.TempDir()
+	configPath := filepath.Join(repoRoot, ".adomi", "config.yaml")
+	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
+		t.Fatalf("creating config dir: %v", err)
+	}
+	if err := os.WriteFile(configPath, []byte("existing\n"), 0o644); err != nil {
+		t.Fatalf("writing config: %v", err)
+	}
+	runner := Runner{deps: Dependencies{
+		Getwd:        func() (string, error) { return repoRoot, nil },
+		UserHomeDir:  func() (string, error) { return t.TempDir(), nil },
+		FindRepoRoot: func(string) (string, error) { return repoRoot, nil },
+	}}
+
+	err := runner.Run([]string{"ado", "config", "init"}, strings.NewReader(""), &bytes.Buffer{}, &bytes.Buffer{})
+	if err == nil {
+		t.Fatal("Run error = nil, want overwrite error")
+	}
+	if !strings.Contains(err.Error(), "already exists") {
+		t.Fatalf("error = %q, want already exists", err.Error())
+	}
+}
+
+func TestADOConfigInitRejectsExistingSymlink(t *testing.T) {
+	repoRoot := t.TempDir()
+	targetPath := filepath.Join(repoRoot, "target.yaml")
+	if err := os.WriteFile(targetPath, []byte("existing\n"), 0o644); err != nil {
+		t.Fatalf("writing target: %v", err)
+	}
+	configPath := filepath.Join(repoRoot, ".adomi", "config.yaml")
+	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
+		t.Fatalf("creating config dir: %v", err)
+	}
+	if err := os.Symlink(targetPath, configPath); err != nil {
+		t.Fatalf("creating symlink: %v", err)
+	}
+	runner := Runner{deps: Dependencies{
+		Getwd:        func() (string, error) { return repoRoot, nil },
+		UserHomeDir:  func() (string, error) { return t.TempDir(), nil },
+		FindRepoRoot: func(string) (string, error) { return repoRoot, nil },
+	}}
+
+	err := runner.Run([]string{"ado", "config", "init"}, strings.NewReader(""), &bytes.Buffer{}, &bytes.Buffer{})
+	if err == nil {
+		t.Fatal("Run error = nil, want existing symlink error")
+	}
+	data, readErr := os.ReadFile(targetPath)
+	if readErr != nil {
+		t.Fatalf("reading target: %v", readErr)
+	}
+	if string(data) != "existing\n" {
+		t.Fatalf("target was modified: %q", data)
+	}
+}
+
+func TestADOConfigInitRejectsUnknownArgs(t *testing.T) {
+	runner := Runner{deps: Dependencies{}}
+
+	err := runner.Run([]string{"ado", "config", "init", "--unknown"}, strings.NewReader(""), &bytes.Buffer{}, &bytes.Buffer{})
+	if err == nil {
+		t.Fatal("Run error = nil, want unknown argument error")
+	}
+	if !strings.Contains(err.Error(), "unknown") {
+		t.Fatalf("error = %q, want unknown argument", err.Error())
+	}
+}
+
+func TestADOConfigInitPrefillsAzureDevOpsRemote(t *testing.T) {
+	repoRoot := t.TempDir()
+	runner := Runner{deps: Dependencies{
+		Getwd:        func() (string, error) { return repoRoot, nil },
+		UserHomeDir:  func() (string, error) { return t.TempDir(), nil },
+		FindRepoRoot: func(string) (string, error) { return repoRoot, nil },
+		RemoteURLs: func(string) ([]string, error) {
+			return []string{"https://dev.azure.com/my-org/MyProject/_git/adomi"}, nil
+		},
+	}}
+
+	err := runner.Run([]string{"ado", "config", "init"}, strings.NewReader(""), &bytes.Buffer{}, &bytes.Buffer{})
+	if err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(repoRoot, ".adomi", "config.yaml"))
+	if err != nil {
+		t.Fatalf("reading config: %v", err)
+	}
+	text := string(data)
+	for _, want := range []string{
+		"#   defaultProfile: MyProject",
+		"#       baseUrl: https://dev.azure.com/my-org",
+		"#       organization: my-org",
+		"#       project: MyProject",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("config = %q, want %q", text, want)
+		}
 	}
 }
 
@@ -391,5 +696,14 @@ func assertLocalFile(t *testing.T, path string) {
 	t.Helper()
 	if _, err := os.Stat(path); err != nil {
 		t.Fatalf("expected file %s: %v", path, err)
+	}
+}
+
+func assertAllCommented(t *testing.T, content string) {
+	t.Helper()
+	for _, line := range strings.Split(strings.TrimSpace(content), "\n") {
+		if !strings.HasPrefix(line, "#") {
+			t.Fatalf("line %q is not commented", line)
+		}
 	}
 }
