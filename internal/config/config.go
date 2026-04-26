@@ -13,6 +13,7 @@ import (
 )
 
 const defaultAPIVersion = "7.1"
+const maxPATRefBytes = 256
 
 type Scope int
 
@@ -32,11 +33,19 @@ type AzureDevOpsConfig struct {
 
 type Profile struct {
 	Name         string `yaml:"-"`
+	PATRef       string `yaml:"patRef"`
 	BaseURL      string `yaml:"baseUrl"`
 	Organization string `yaml:"organization"`
 	Project      string `yaml:"project"`
 	APIVersion   string `yaml:"apiVersion"`
 	Proxy        string `yaml:"proxy"`
+}
+
+func (p Profile) CredentialRef() string {
+	if ref := strings.TrimSpace(p.PATRef); ref != "" {
+		return ref
+	}
+	return p.Name
 }
 
 type Loaded struct {
@@ -71,6 +80,13 @@ func LoadWithScope(repoRoot, homeDir, requestedProfile string, scope Scope) (*Lo
 	profile.Name = profileName
 	if profile.APIVersion == "" {
 		profile.APIVersion = defaultAPIVersion
+	}
+	if profile.PATRef != "" {
+		ref, err := NormalizePATRef(profile.PATRef)
+		if err != nil {
+			return nil, fmt.Errorf("Azure DevOps profile %q invalid patRef: %w", profile.Name, err)
+		}
+		profile.PATRef = ref
 	}
 	if err := validateProfile(profile); err != nil {
 		return nil, err
@@ -175,6 +191,7 @@ func RenderInitTemplate(values InitTemplateValues) string {
 		"#",
 		"#   profiles:",
 		"#     " + values.ProfileName + ":",
+		"#       patRef: \"\"",
 		"#       baseUrl: " + values.BaseURL,
 		"#       organization: " + values.Organization,
 		"#       project: " + values.Project,
@@ -310,4 +327,20 @@ func validateProfile(profile Profile) error {
 		return fmt.Errorf("Azure DevOps profile %q missing project", profile.Name)
 	}
 	return nil
+}
+
+func NormalizePATRef(ref string) (string, error) {
+	ref = strings.TrimSpace(ref)
+	if ref == "" {
+		return "", fmt.Errorf("cannot be empty")
+	}
+	if len(ref) > maxPATRefBytes {
+		return "", fmt.Errorf("cannot exceed %d bytes", maxPATRefBytes)
+	}
+	for _, r := range ref {
+		if unicode.IsControl(r) {
+			return "", fmt.Errorf("cannot contain control characters")
+		}
+	}
+	return ref, nil
 }

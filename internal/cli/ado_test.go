@@ -19,48 +19,192 @@ import (
 	"github.com/Digni/adomi/internal/config"
 )
 
-func TestADOLoginStoresPATForProfile(t *testing.T) {
+func TestADOLoginStoresPATForDirectRef(t *testing.T) {
 	store := &fakePATStore{}
 	runner := Runner{deps: Dependencies{PATStore: store}}
 	var stdout, stderr bytes.Buffer
 
-	err := runner.Run([]string{"ado", "login", "--profile", "company-cloud"}, strings.NewReader("secret-pat\n"), &stdout, &stderr)
+	err := runner.Run([]string{"ado", "login", "--pat-ref", "shared-ado"}, strings.NewReader("secret-pat\n"), &stdout, &stderr)
 	if err != nil {
 		t.Fatalf("Run returned error: %v", err)
 	}
-	if got := store.values["company-cloud"]; got != "secret-pat" {
+	if got := store.values["shared-ado"]; got != "secret-pat" {
 		t.Fatalf("stored PAT = %q, want secret-pat", got)
 	}
 	if stdout.String() != "" {
 		t.Fatalf("stdout = %q, want empty", stdout.String())
 	}
-	if !strings.Contains(stderr.String(), "Azure DevOps PAT for company-cloud:") {
+	if !strings.Contains(stderr.String(), "Azure DevOps PAT for shared-ado:") {
 		t.Fatalf("stderr = %q, want prompt", stderr.String())
 	}
 }
 
-func TestADOLogoutDeletesPATForProfile(t *testing.T) {
-	store := &fakePATStore{values: map[string]string{"company-cloud": "secret-pat"}}
+func TestADOLoginTrimsDirectPATRef(t *testing.T) {
+	store := &fakePATStore{}
 	runner := Runner{deps: Dependencies{PATStore: store}}
+
+	err := runner.Run([]string{"ado", "login", "--pat-ref", " shared-ado "}, strings.NewReader("secret-pat\n"), &bytes.Buffer{}, &bytes.Buffer{})
+	if err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+	if got := store.values["shared-ado"]; got != "secret-pat" {
+		t.Fatalf("stored PAT = %q, want secret-pat", got)
+	}
+	if _, ok := store.values[" shared-ado "]; ok {
+		t.Fatal("PAT was stored under untrimmed ref")
+	}
+}
+
+func TestADOLoginStoresPATForProfilePATRef(t *testing.T) {
+	store := &fakePATStore{}
+	runner := Runner{deps: Dependencies{
+		PATStore:     store,
+		Getwd:        func() (string, error) { return "/repo/subdir", nil },
+		UserHomeDir:  func() (string, error) { return "/home/me", nil },
+		FindRepoRoot: func(string) (string, error) { return "/repo", nil },
+		LoadConfig: func(repoRoot, homeDir, requestedProfile string, scope config.Scope) (*config.Loaded, error) {
+			if repoRoot != "/repo" || homeDir != "/home/me" || requestedProfile != "company-cloud" || scope != config.DefaultScope {
+				t.Fatalf("LoadConfig args = %q %q %q %v", repoRoot, homeDir, requestedProfile, scope)
+			}
+			return &config.Loaded{Profile: config.Profile{Name: "company-cloud", PATRef: "shared-ado", BaseURL: "https://dev.azure.com/org", Project: "MyProject"}}, nil
+		},
+	}}
+
+	err := runner.Run([]string{"ado", "login", "--profile", "company-cloud"}, strings.NewReader("secret-pat\n"), &bytes.Buffer{}, &bytes.Buffer{})
+	if err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+	if got := store.values["shared-ado"]; got != "secret-pat" {
+		t.Fatalf("stored PAT = %q, want secret-pat", got)
+	}
+}
+
+func TestADOLoginGlobalProfileStoresPATForProfilePATRefWithoutRepo(t *testing.T) {
+	findRepoRootCalled := false
+	store := &fakePATStore{}
+	runner := Runner{deps: Dependencies{
+		PATStore:    store,
+		Getwd:       func() (string, error) { return "/outside", nil },
+		UserHomeDir: func() (string, error) { return "/home/me", nil },
+		FindRepoRoot: func(string) (string, error) {
+			findRepoRootCalled = true
+			return "", errors.New("not a repo")
+		},
+		LoadConfig: func(repoRoot, homeDir, requestedProfile string, scope config.Scope) (*config.Loaded, error) {
+			if repoRoot != "" || homeDir != "/home/me" || requestedProfile != "global-profile" || scope != config.GlobalScope {
+				t.Fatalf("LoadConfig args = %q %q %q %v", repoRoot, homeDir, requestedProfile, scope)
+			}
+			return &config.Loaded{Profile: config.Profile{Name: "global-profile", PATRef: "shared-global", BaseURL: "https://dev.azure.com/org", Project: "MyProject"}}, nil
+		},
+	}}
+
+	err := runner.Run([]string{"ado", "login", "--global", "--profile", "global-profile"}, strings.NewReader("secret-pat\n"), &bytes.Buffer{}, &bytes.Buffer{})
+	if err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+	if findRepoRootCalled {
+		t.Fatal("FindRepoRoot was called for global profile login")
+	}
+	if got := store.values["shared-global"]; got != "secret-pat" {
+		t.Fatalf("stored PAT = %q, want secret-pat", got)
+	}
+}
+
+func TestADOLoginGlobalProfileFallsBackToProfileName(t *testing.T) {
+	store := &fakePATStore{}
+	runner := Runner{deps: Dependencies{
+		PATStore:    store,
+		UserHomeDir: func() (string, error) { return "/home/me", nil },
+		LoadConfig: func(repoRoot, homeDir, requestedProfile string, scope config.Scope) (*config.Loaded, error) {
+			return &config.Loaded{Profile: config.Profile{Name: "global-profile", BaseURL: "https://dev.azure.com/org", Project: "MyProject"}}, nil
+		},
+	}}
+
+	err := runner.Run([]string{"ado", "login", "--global", "--profile", "global-profile"}, strings.NewReader("secret-pat\n"), &bytes.Buffer{}, &bytes.Buffer{})
+	if err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+	if got := store.values["global-profile"]; got != "secret-pat" {
+		t.Fatalf("stored PAT = %q, want secret-pat", got)
+	}
+}
+
+func TestADOLogoutDeletesPATForDirectRef(t *testing.T) {
+	store := &fakePATStore{values: map[string]string{"shared-ado": "secret-pat"}}
+	runner := Runner{deps: Dependencies{PATStore: store}}
+
+	err := runner.Run([]string{"ado", "logout", "--pat-ref", "shared-ado"}, strings.NewReader(""), &bytes.Buffer{}, &bytes.Buffer{})
+	if err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+	if _, ok := store.values["shared-ado"]; ok {
+		t.Fatal("PAT still exists after logout")
+	}
+}
+
+func TestADOLogoutProfileDeletesPATRef(t *testing.T) {
+	store := &fakePATStore{values: map[string]string{"shared-ado": "secret-pat", "company-cloud": "old-pat"}}
+	runner := Runner{deps: Dependencies{
+		PATStore:     store,
+		Getwd:        func() (string, error) { return "/repo/subdir", nil },
+		UserHomeDir:  func() (string, error) { return "/home/me", nil },
+		FindRepoRoot: func(string) (string, error) { return "/repo", nil },
+		LoadConfig: func(repoRoot, homeDir, requestedProfile string, scope config.Scope) (*config.Loaded, error) {
+			return &config.Loaded{Profile: config.Profile{Name: "company-cloud", PATRef: "shared-ado", BaseURL: "https://dev.azure.com/org", Project: "MyProject"}}, nil
+		},
+	}}
 
 	err := runner.Run([]string{"ado", "logout", "--profile", "company-cloud"}, strings.NewReader(""), &bytes.Buffer{}, &bytes.Buffer{})
 	if err != nil {
 		t.Fatalf("Run returned error: %v", err)
 	}
-	if _, ok := store.values["company-cloud"]; ok {
-		t.Fatal("PAT still exists after logout")
+	if _, ok := store.values["shared-ado"]; ok {
+		t.Fatal("PAT ref still exists after logout")
+	}
+	if got := store.values["company-cloud"]; got != "old-pat" {
+		t.Fatalf("profile-name PAT = %q, want untouched old-pat", got)
 	}
 }
 
-func TestADOLoginRequiresProfile(t *testing.T) {
+func TestADOLogoutGlobalProfileDeletesPATRefWithoutRepo(t *testing.T) {
+	findRepoRootCalled := false
+	store := &fakePATStore{values: map[string]string{"shared-global": "secret-pat"}}
+	runner := Runner{deps: Dependencies{
+		PATStore:    store,
+		UserHomeDir: func() (string, error) { return "/home/me", nil },
+		FindRepoRoot: func(string) (string, error) {
+			findRepoRootCalled = true
+			return "", errors.New("not a repo")
+		},
+		LoadConfig: func(repoRoot, homeDir, requestedProfile string, scope config.Scope) (*config.Loaded, error) {
+			if repoRoot != "" || homeDir != "/home/me" || requestedProfile != "global-profile" || scope != config.GlobalScope {
+				t.Fatalf("LoadConfig args = %q %q %q %v", repoRoot, homeDir, requestedProfile, scope)
+			}
+			return &config.Loaded{Profile: config.Profile{Name: "global-profile", PATRef: "shared-global", BaseURL: "https://dev.azure.com/org", Project: "MyProject"}}, nil
+		},
+	}}
+
+	err := runner.Run([]string{"ado", "logout", "--global", "--profile", "global-profile"}, strings.NewReader(""), &bytes.Buffer{}, &bytes.Buffer{})
+	if err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+	if findRepoRootCalled {
+		t.Fatal("FindRepoRoot was called for global profile logout")
+	}
+	if _, ok := store.values["shared-global"]; ok {
+		t.Fatal("PAT ref still exists after logout")
+	}
+}
+
+func TestADOLoginRequiresProfileOrPATRef(t *testing.T) {
 	runner := Runner{deps: Dependencies{PATStore: &fakePATStore{}}}
 
 	err := runner.Run([]string{"ado", "login"}, strings.NewReader("secret\n"), &bytes.Buffer{}, &bytes.Buffer{})
 	if err == nil {
 		t.Fatal("Run error = nil, want error")
 	}
-	if !strings.Contains(err.Error(), "--profile") {
-		t.Fatalf("error = %q, want --profile", err.Error())
+	if !strings.Contains(err.Error(), "--profile") || !strings.Contains(err.Error(), "--pat-ref") {
+		t.Fatalf("error = %q, want --profile and --pat-ref", err.Error())
 	}
 }
 
@@ -78,7 +222,7 @@ func TestADOLoginUsesSecretReader(t *testing.T) {
 		},
 	}}
 
-	err := runner.Run([]string{"ado", "login", "--profile", "company-cloud"}, failReader{}, &bytes.Buffer{}, &bytes.Buffer{})
+	err := runner.Run([]string{"ado", "login", "--pat-ref", "company-cloud"}, failReader{}, &bytes.Buffer{}, &bytes.Buffer{})
 	if err != nil {
 		t.Fatalf("Run returned error: %v", err)
 	}
@@ -94,7 +238,7 @@ func TestADOLoginRejectsPartialPATFromNonEOFReadError(t *testing.T) {
 	store := &fakePATStore{}
 	runner := Runner{deps: Dependencies{PATStore: store}}
 
-	err := runner.Run([]string{"ado", "login", "--profile", "company-cloud"}, partialErrorReader{}, &bytes.Buffer{}, &bytes.Buffer{})
+	err := runner.Run([]string{"ado", "login", "--pat-ref", "company-cloud"}, partialErrorReader{}, &bytes.Buffer{}, &bytes.Buffer{})
 	if err == nil {
 		t.Fatal("Run error = nil, want read error")
 	}
@@ -138,7 +282,7 @@ func TestADOProfilesListPrintsConfiguredProfiles(t *testing.T) {
 }
 
 func TestADOFetchPrintsOnlyExportedPath(t *testing.T) {
-	store := &fakePATStore{values: map[string]string{"company-cloud": "secret-pat"}}
+	store := &fakePATStore{values: map[string]string{"shared-ado": "secret-pat"}}
 	fakeClient := fakeADOClient{}
 	createdAt := time.Date(2026, 4, 26, 12, 0, 0, 0, time.UTC)
 	tree := &ado.WorkItemTree{RootID: 12345, WorkItems: []ado.WorkItem{{ID: 12345}}}
@@ -156,6 +300,7 @@ func TestADOFetchPrintsOnlyExportedPath(t *testing.T) {
 			}
 			return &config.Loaded{Profile: config.Profile{
 				Name:       "company-cloud",
+				PATRef:     "shared-ado",
 				BaseURL:    "https://dev.azure.com/org",
 				Project:    "MyProject",
 				APIVersion: "7.1",
@@ -372,15 +517,61 @@ func TestADOUsageIncludesConfigCommand(t *testing.T) {
 	}
 }
 
-func TestADOLoginRejectsGlobalFlag(t *testing.T) {
-	runner := Runner{deps: Dependencies{PATStore: &fakePATStore{}}}
-
-	err := runner.Run([]string{"ado", "login", "--global", "--profile", "company-cloud"}, strings.NewReader("secret\n"), &bytes.Buffer{}, &bytes.Buffer{})
-	if err == nil {
-		t.Fatal("Run error = nil, want error")
+func TestADOLoginRejectsInvalidCredentialArgs(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+		want string
+	}{
+		{name: "profile and PAT ref", args: []string{"ado", "login", "--profile", "company-cloud", "--pat-ref", "shared"}, want: "cannot use"},
+		{name: "global PAT ref", args: []string{"ado", "login", "--global", "--pat-ref", "shared"}, want: "--global requires --profile"},
+		{name: "global without profile", args: []string{"ado", "login", "--global"}, want: "--global requires --profile"},
+		{name: "missing PAT ref value", args: []string{"ado", "login", "--pat-ref"}, want: "--pat-ref requires a value"},
+		{name: "flag as PAT ref value", args: []string{"ado", "login", "--pat-ref", "--profile"}, want: "--pat-ref requires a value"},
+		{name: "blank PAT ref value", args: []string{"ado", "login", "--pat-ref", "   "}, want: "patRef"},
+		{name: "control character PAT ref", args: []string{"ado", "login", "--pat-ref", "shared\nref"}, want: "patRef"},
+		{name: "too long PAT ref", args: []string{"ado", "login", "--pat-ref", strings.Repeat("a", 257)}, want: "patRef"},
 	}
-	if !strings.Contains(err.Error(), "unknown") {
-		t.Fatalf("error = %q, want unknown argument", err.Error())
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			runner := Runner{deps: Dependencies{PATStore: &fakePATStore{}}}
+			err := runner.Run(tt.args, strings.NewReader("secret\n"), &bytes.Buffer{}, &bytes.Buffer{})
+			if err == nil {
+				t.Fatal("Run error = nil, want error")
+			}
+			if !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("error = %q, want substring %q", err.Error(), tt.want)
+			}
+		})
+	}
+}
+
+func TestADOLogoutRejectsInvalidCredentialArgs(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+		want string
+	}{
+		{name: "profile and PAT ref", args: []string{"ado", "logout", "--profile", "company-cloud", "--pat-ref", "shared"}, want: "cannot use"},
+		{name: "global PAT ref", args: []string{"ado", "logout", "--global", "--pat-ref", "shared"}, want: "--global requires --profile"},
+		{name: "global without profile", args: []string{"ado", "logout", "--global"}, want: "--global requires --profile"},
+		{name: "missing PAT ref value", args: []string{"ado", "logout", "--pat-ref"}, want: "--pat-ref requires a value"},
+		{name: "flag as PAT ref value", args: []string{"ado", "logout", "--pat-ref", "--profile"}, want: "--pat-ref requires a value"},
+		{name: "blank PAT ref value", args: []string{"ado", "logout", "--pat-ref", "   "}, want: "patRef"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			runner := Runner{deps: Dependencies{PATStore: &fakePATStore{}}}
+			err := runner.Run(tt.args, strings.NewReader(""), &bytes.Buffer{}, &bytes.Buffer{})
+			if err == nil {
+				t.Fatal("Run error = nil, want error")
+			}
+			if !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("error = %q, want substring %q", err.Error(), tt.want)
+			}
+		})
 	}
 }
 
@@ -565,8 +756,8 @@ func TestADOLogoutRequiresProfile(t *testing.T) {
 	if err == nil {
 		t.Fatal("Run error = nil, want error")
 	}
-	if !strings.Contains(err.Error(), "--profile") {
-		t.Fatalf("error = %q, want --profile", err.Error())
+	if !strings.Contains(err.Error(), "--profile") || !strings.Contains(err.Error(), "--pat-ref") {
+		t.Fatalf("error = %q, want --profile and --pat-ref", err.Error())
 	}
 }
 
@@ -607,6 +798,7 @@ azureDevOps:
   defaultProfile: company-cloud
   profiles:
     company-cloud:
+      patRef: shared-ado
       baseUrl: `+server.URL+`
       project: MyProject
 `), 0o644); err != nil {
@@ -614,7 +806,7 @@ azureDevOps:
 	}
 
 	runner := Runner{deps: Dependencies{
-		PATStore:    &fakePATStore{values: map[string]string{"company-cloud": "secret-pat"}},
+		PATStore:    &fakePATStore{values: map[string]string{"shared-ado": "secret-pat"}},
 		Getwd:       func() (string, error) { return subdir, nil },
 		UserHomeDir: func() (string, error) { return homeDir, nil },
 		Now:         func() time.Time { return time.Date(2026, 4, 26, 12, 0, 0, 0, time.UTC) },
