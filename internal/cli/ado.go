@@ -229,7 +229,7 @@ func (r Runner) runADOConfigInit(args []string, stdout io.Writer) error {
 		}
 	}
 
-	if err := writeNewFile(targetPath, []byte(config.RenderInitTemplate(values)), 0o644); err != nil {
+	if err := writeNewFile(targetPath, []byte(config.RenderInitTemplate(values)), 0o600); err != nil {
 		return err
 	}
 	fmt.Fprintln(stdout, targetPath)
@@ -242,7 +242,7 @@ func writeNewFile(path string, data []byte, perm os.FileMode) error {
 	} else if !os.IsNotExist(err) {
 		return fmt.Errorf("checking config %s: %w", path, err)
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return fmt.Errorf("creating config directory: %w", err)
 	}
 	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, perm)

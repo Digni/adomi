@@ -206,6 +206,16 @@ func TestInitTemplateValuesFromAzureDevOpsHTTPSRemoteWithUserInfo(t *testing.T) 
 	}
 }
 
+func TestInitTemplateValuesFromMixedCaseAzureDevOpsOrgRemote(t *testing.T) {
+	values, ok := InitTemplateValuesFromRemote("https://dev.azure.com/My-Org/MyProject/_git/adomi")
+	if !ok {
+		t.Fatal("InitTemplateValuesFromRemote ok = false, want true")
+	}
+	if values.Organization != "my-org" || values.BaseURL != "https://dev.azure.com/my-org" {
+		t.Fatalf("values = %+v, want normalized org/base URL", values)
+	}
+}
+
 func TestInitTemplateValuesFromAzureDevOpsSSHRemote(t *testing.T) {
 	values, ok := InitTemplateValuesFromRemote("git@ssh.dev.azure.com:v3/my-org/MyProject/adomi")
 	if !ok {
@@ -213,6 +223,16 @@ func TestInitTemplateValuesFromAzureDevOpsSSHRemote(t *testing.T) {
 	}
 	if values.Organization != "my-org" || values.Project != "MyProject" || values.BaseURL != "https://dev.azure.com/my-org" {
 		t.Fatalf("values = %+v, want org/project/base URL", values)
+	}
+}
+
+func TestInitTemplateValuesFromMixedCaseAzureDevOpsSSHRemote(t *testing.T) {
+	values, ok := InitTemplateValuesFromRemote("git@ssh.dev.azure.com:v3/My-Org/MyProject/adomi")
+	if !ok {
+		t.Fatal("InitTemplateValuesFromRemote ok = false, want true")
+	}
+	if values.Organization != "my-org" || values.BaseURL != "https://dev.azure.com/my-org" {
+		t.Fatalf("values = %+v, want normalized org/base URL", values)
 	}
 }
 

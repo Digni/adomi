@@ -272,6 +272,7 @@ func InitTemplateValuesFromRemote(remote string) (InitTemplateValues, bool) {
 }
 
 func initValues(org, project string) InitTemplateValues {
+	org = strings.ToLower(org)
 	return InitTemplateValues{
 		ProfileName:  sanitizeProfileName(project),
 		BaseURL:      "https://dev.azure.com/" + org,

@@ -407,6 +407,8 @@ func TestADOConfigInitCreatesRepoConfig(t *testing.T) {
 		t.Fatalf("reading config: %v", err)
 	}
 	assertAllCommented(t, string(data))
+	assertPathPerm(t, filepath.Dir(configPath), 0o700)
+	assertPathPerm(t, configPath, 0o600)
 }
 
 func TestADOConfigInitOutsideRepoReturnsError(t *testing.T) {
@@ -452,6 +454,8 @@ func TestADOConfigInitGlobalCreatesHomeConfigOutsideRepo(t *testing.T) {
 		t.Fatalf("reading config: %v", err)
 	}
 	assertAllCommented(t, string(data))
+	assertPathPerm(t, filepath.Dir(configPath), 0o700)
+	assertPathPerm(t, configPath, 0o600)
 }
 
 func TestADOConfigInitRefusesOverwrite(t *testing.T) {
@@ -705,5 +709,16 @@ func assertAllCommented(t *testing.T, content string) {
 		if !strings.HasPrefix(line, "#") {
 			t.Fatalf("line %q is not commented", line)
 		}
+	}
+}
+
+func assertPathPerm(t *testing.T, path string, want os.FileMode) {
+	t.Helper()
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat %s: %v", path, err)
+	}
+	if got := info.Mode().Perm(); got != want {
+		t.Fatalf("%s mode = %o, want %o", path, got, want)
 	}
 }
