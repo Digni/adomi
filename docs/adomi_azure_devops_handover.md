@@ -1,0 +1,522 @@
+# Adomi Azure DevOps Context Fetcher Handover
+
+## Purpose
+
+Implement a Go CLI tool named `adomi` that can fetch Azure DevOps work item context for agents.
+
+The main use case is:
+
+```bash
+adomi ado fetch 12345
+```
+
+The command should fetch the work item, walk up the parent tree to Epic, download attachments, store all context in the repository-local `.adomi` folder, and print the generated folder path.
+
+---
+
+## Repository
+
+- Repository: `Digni/adomi`
+- Default branch: `main`
+- Starting point: blank slate / minimal repo
+
+Create a new branch locally before starting:
+
+```bash
+git checkout main
+git pull
+git checkout -b feature/azure-devops-context-fetcher
+```
+
+---
+
+## Core Requirements
+
+The CLI must:
+
+1. Accept a work item or task ID.
+2. Query Azure DevOps via REST API.
+3. Support Azure DevOps Services and Azure DevOps Server/on-prem.
+4. Support multiple Azure DevOps profiles.
+5. Use a PAT stored in OS secure storage.
+6. Support proxies.
+7. Walk up the parent work item tree until Epic.
+8. Download attached images and documents.
+9. Store all fetched context in `<repo-root>/.adomi`.
+10. Print only the generated folder path when done.
+
+---
+
+## Important Design Decision
+
+`.adomi` must be created inside the current Git repository.
+
+When running from any subdirectory:
+
+```bash
+adomi ado fetch 12345
+```
+
+the tool should walk upward until it finds `.git`, then write to:
+
+```text
+<repo-root>/.adomi/
+```
+
+Do not store fetched context in the user home directory.
+
+The user home directory may only be used as a fallback config location.
+
+---
+
+## MVP Commands
+
+Implement these first:
+
+```bash
+adomi ado fetch <work-item-id>
+adomi ado fetch <work-item-id> --profile <profile-name>
+adomi ado login --profile <profile-name>
+adomi ado logout --profile <profile-name>
+```
+
+Optional but useful:
+
+```bash
+adomi ado profiles list
+```
+
+---
+
+## Config
+
+Use YAML.
+
+Preferred config location:
+
+```text
+<repo-root>/.adomi/config.yaml
+```
+
+Fallback config location:
+
+```text
+~/.config/adomi/config.yaml
+```
+
+Example config:
+
+```yaml
+azureDevOps:
+  defaultProfile: company-cloud
+
+  profiles:
+    company-cloud:
+      baseUrl: https://dev.azure.com/my-org
+      organization: my-org
+      project: MyProject
+      apiVersion: "7.1"
+      proxy: ""
+
+    company-onprem:
+      baseUrl: https://tfs.company.local/tfs/DefaultCollection
+      project: MyProject
+      apiVersion: "7.0"
+      proxy: http://proxy.company.local:8080
+```
+
+Notes:
+
+- `organization` is useful for cloud profiles but should not be required for on-prem if `baseUrl` already contains the collection.
+- `apiVersion` should default to `"7.1"` when omitted.
+- `proxy` should be optional.
+
+---
+
+## Output Layout
+
+For work item `12345`:
+
+```text
+<repo-root>/.adomi/
+  azure-devops/
+    company-cloud/
+      MyProject/
+        work-items/
+          12345/
+            index.json
+            tree.json
+            work-items/
+              12345.json
+              12001.json
+              10000.json
+            html/
+              12345.html
+              12001.html
+              10000.html
+            attachments/
+              12345/
+                screenshot.png
+                spec.pdf
+```
+
+Add this `.gitignore`:
+
+```gitignore
+.adomi/
+bin/
+*.test
+coverage.out
+```
+
+---
+
+## Suggested File Structure
+
+```text
+go.mod
+cmd/adomi/main.go
+
+internal/cli/root.go
+internal/cli/ado.go
+
+internal/workspace/repo.go
+
+internal/config/config.go
+
+internal/securestore/keyring.go
+
+internal/ado/client.go
+internal/ado/models.go
+internal/ado/fetch.go
+internal/ado/attachments.go
+internal/ado/export.go
+```
+
+---
+
+## Dependencies
+
+Use:
+
+```bash
+go get github.com/zalando/go-keyring
+go get gopkg.in/yaml.v3
+```
+
+Avoid Cobra for the MVP. Standard-library argument parsing is enough.
+
+---
+
+## Repo Root Detection
+
+Implement:
+
+```go
+func FindRepoRoot(start string) (string, error)
+```
+
+Behavior:
+
+1. Start from the current working directory.
+2. Walk upward.
+3. Return the first directory containing `.git`.
+4. Return an error if not inside a Git repo.
+
+Example implementation shape:
+
+```go
+func FindRepoRoot(start string) (string, error) {
+    dir, err := filepath.Abs(start)
+    if err != nil {
+        return "", err
+    }
+
+    for {
+        gitPath := filepath.Join(dir, ".git")
+        if _, err := os.Stat(gitPath); err == nil {
+            return dir, nil
+        }
+
+        parent := filepath.Dir(dir)
+        if parent == dir {
+            return "", errors.New("not inside a git repository")
+        }
+
+        dir = parent
+    }
+}
+```
+
+---
+
+## Secure PAT Storage
+
+Use:
+
+```go
+github.com/zalando/go-keyring
+```
+
+Store PAT as:
+
+```text
+service: adomi.azure-devops
+user: <profile-name>
+```
+
+`adomi ado login --profile company-cloud` should prompt for a PAT and save it.
+
+`adomi ado logout --profile company-cloud` should delete it.
+
+Hidden input is preferred, but normal stdin prompt is acceptable for the first MVP.
+
+---
+
+## Azure DevOps Auth
+
+Azure DevOps PAT uses Basic Auth with an empty username:
+
+```go
+req.SetBasicAuth("", pat)
+```
+
+---
+
+## HTTP Client
+
+Support profile proxy and environment proxy.
+
+Rules:
+
+1. If profile config has `proxy`, use it.
+2. Otherwise use `http.ProxyFromEnvironment`.
+3. Timeout: `60s`.
+
+Example shape:
+
+```go
+func NewHTTPClient(proxyURL string) (*http.Client, error) {
+    transport := &http.Transport{}
+
+    if proxyURL != "" {
+        parsed, err := url.Parse(proxyURL)
+        if err != nil {
+            return nil, err
+        }
+        transport.Proxy = http.ProxyURL(parsed)
+    } else {
+        transport.Proxy = http.ProxyFromEnvironment
+    }
+
+    return &http.Client{
+        Transport: transport,
+        Timeout:   60 * time.Second,
+    }, nil
+}
+```
+
+---
+
+## Azure DevOps API
+
+Fetch a work item with relations:
+
+```http
+GET {baseUrl}/{project}/_apis/wit/workitems/{id}?$expand=all&api-version={apiVersion}
+```
+
+Base URL examples:
+
+```text
+https://dev.azure.com/my-org
+https://tfs.company.local/tfs/DefaultCollection
+```
+
+Build the URL as:
+
+```text
+{baseUrl}/{project}/_apis/wit/workitems/{id}
+```
+
+---
+
+## Parent Traversal
+
+Parent relation:
+
+```text
+System.LinkTypes.Hierarchy-Reverse
+```
+
+Algorithm:
+
+1. Fetch initial work item.
+2. Store it.
+3. Find parent relation.
+4. Fetch parent.
+5. Repeat until:
+   - `System.WorkItemType == "Epic"`
+   - no parent exists
+   - parent was already visited
+
+The returned tree should preserve the chain from input item up to Epic.
+
+---
+
+## Attachments
+
+Attachment relation:
+
+```text
+AttachedFile
+```
+
+For each attachment:
+
+1. Download the relation URL using the same auth.
+2. Determine filename from relation attributes `name`.
+3. Fallback to URL filename.
+4. Final fallback: `attachment-{n}`.
+5. Store under:
+
+```text
+attachments/<work-item-id>/<filename>
+```
+
+---
+
+## Export Format
+
+Canonical format: JSON.
+
+Write:
+
+```text
+work-items/<id>.json
+tree.json
+index.json
+```
+
+Also generate simple HTML files:
+
+```html
+<h1>{id}: {title}</h1>
+<p><strong>Type:</strong> {type}</p>
+<div>{description}</div>
+```
+
+Keep HTML minimal. JSON is the primary agent-readable format.
+
+---
+
+## `index.json` Shape
+
+Example:
+
+```json
+{
+  "source": "azure-devops",
+  "profile": "company-cloud",
+  "project": "MyProject",
+  "rootWorkItemId": 12345,
+  "epicWorkItemId": 10000,
+  "createdAt": "2026-04-26T12:00:00Z",
+  "workItems": [
+    {
+      "id": 12345,
+      "type": "Task",
+      "title": "Implement checkout validation",
+      "path": "work-items/12345.json",
+      "htmlPath": "html/12345.html",
+      "attachmentsPath": "attachments/12345"
+    }
+  ]
+}
+```
+
+---
+
+## CLI Output Contract
+
+`adomi ado fetch` should print only the final folder path to stdout:
+
+```text
+/path/to/repo/.adomi/azure-devops/company-cloud/MyProject/work-items/12345
+```
+
+Errors should go to stderr.
+
+This should work:
+
+```bash
+LOCATION=$(adomi ado fetch 12345)
+cat "$LOCATION/index.json"
+```
+
+---
+
+## Acceptance Criteria
+
+Running:
+
+```bash
+adomi ado fetch 12345 --profile company-cloud
+```
+
+inside any subfolder of a Git repo should:
+
+1. Resolve the Git repo root.
+2. Read config from `<repo-root>/.adomi/config.yaml` or `~/.config/adomi/config.yaml`.
+3. Read PAT from OS secure storage.
+4. Fetch work item `12345`.
+5. Fetch parents up to Epic.
+6. Download attachments.
+7. Write all files under `<repo-root>/.adomi/...`.
+8. Print only the generated folder path.
+
+---
+
+## Tests
+
+Add tests for:
+
+1. Repo root detection.
+2. Config loading with repo config preferred over home config.
+3. Parent traversal using fake client responses.
+4. Output path generation.
+5. Attachment filename fallback logic.
+
+---
+
+## Implementation Order
+
+1. Initialize Go module.
+2. Add `.gitignore`.
+3. Add CLI skeleton.
+4. Add repo root detection.
+5. Add YAML config loader.
+6. Add keyring PAT storage.
+7. Add Azure DevOps HTTP client.
+8. Add single work item fetch.
+9. Add parent traversal up to Epic.
+10. Add JSON export into repo-local `.adomi`.
+11. Add attachment download.
+12. Add minimal HTML export.
+13. Add tests.
+14. Run `go test ./...`.
+
+---
+
+## Non-goals for MVP
+
+Do not implement:
+
+- Full Azure DevOps WIQL search.
+- Bidirectional sync.
+- Mutation/update of work items.
+- Rich HTML rendering.
+- Background daemon.
+- Agent-specific prompt generation.
+
+The MVP is a local context fetcher.
