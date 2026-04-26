@@ -316,6 +316,46 @@ azureDevOps:
 	}
 }
 
+func TestLoadProfilePATRef(t *testing.T) {
+	repoRoot := t.TempDir()
+	homeDir := t.TempDir()
+	writeConfig(t, filepath.Join(repoRoot, ".adomi", "config.yaml"), `
+azureDevOps:
+  profiles:
+    cloud:
+      patRef: shared-ado
+      baseUrl: https://dev.azure.com/org
+      project: Project
+`)
+
+	loaded, err := Load(repoRoot, homeDir, "cloud")
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+	if loaded.Profile.PATRef != "shared-ado" {
+		t.Fatalf("PATRef = %q, want shared-ado", loaded.Profile.PATRef)
+	}
+	if got := loaded.Profile.CredentialRef(); got != "shared-ado" {
+		t.Fatalf("CredentialRef = %q, want shared-ado", got)
+	}
+}
+
+func TestProfileCredentialRefFallsBackToName(t *testing.T) {
+	profile := Profile{Name: "company-cloud"}
+
+	if got := profile.CredentialRef(); got != "company-cloud" {
+		t.Fatalf("CredentialRef = %q, want profile name", got)
+	}
+}
+
+func TestProfileCredentialRefTrimsPATRef(t *testing.T) {
+	profile := Profile{Name: "company-cloud", PATRef: " shared-ado "}
+
+	if got := profile.CredentialRef(); got != "shared-ado" {
+		t.Fatalf("CredentialRef = %q, want trimmed PAT ref", got)
+	}
+}
+
 func TestLoadSelectsExplicitProfile(t *testing.T) {
 	repoRoot := t.TempDir()
 	homeDir := t.TempDir()
@@ -385,6 +425,45 @@ azureDevOps:
 			profile: "cloud",
 			want:    "project",
 		},
+		{
+			name: "whitespace PAT ref",
+			configYAML: `
+azureDevOps:
+  profiles:
+    cloud:
+      patRef: "   "
+      baseUrl: https://dev.azure.com/org
+      project: Project
+`,
+			profile: "cloud",
+			want:    "patRef",
+		},
+		{
+			name: "control character PAT ref",
+			configYAML: `
+azureDevOps:
+  profiles:
+    cloud:
+      patRef: "shared\tref"
+      baseUrl: https://dev.azure.com/org
+      project: Project
+`,
+			profile: "cloud",
+			want:    "patRef",
+		},
+		{
+			name: "too long PAT ref",
+			configYAML: `
+azureDevOps:
+  profiles:
+    cloud:
+      patRef: ` + strings.Repeat("a", 257) + `
+      baseUrl: https://dev.azure.com/org
+      project: Project
+`,
+			profile: "cloud",
+			want:    "patRef",
+		},
 	}
 
 	for _, tt := range tests {
@@ -401,6 +480,19 @@ azureDevOps:
 				t.Fatalf("error = %q, want substring %q", err.Error(), tt.want)
 			}
 		})
+	}
+}
+
+func TestRenderInitTemplateIncludesPATRefComment(t *testing.T) {
+	template := RenderInitTemplate(DefaultInitTemplateValues())
+
+	if !strings.Contains(template, "#       patRef:") {
+		t.Fatalf("template = %q, want commented patRef line", template)
+	}
+	for _, line := range strings.Split(strings.TrimSpace(template), "\n") {
+		if !strings.HasPrefix(line, "#") {
+			t.Fatalf("template line %q is not commented", line)
+		}
 	}
 }
 

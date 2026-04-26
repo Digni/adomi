@@ -112,6 +112,7 @@ azureDevOps:
 
   profiles:
     company-cloud:
+      patRef: shared-ado-pat
       baseUrl: https://dev.azure.com/my-org
       organization: my-org
       project: MyProject
@@ -119,6 +120,7 @@ azureDevOps:
       proxy: ""
 
     company-onprem:
+      patRef: shared-ado-pat
       baseUrl: https://tfs.company.local/tfs/DefaultCollection
       project: MyProject
       apiVersion: "7.0"
@@ -128,6 +130,7 @@ azureDevOps:
 Notes:
 
 - `organization` is useful for cloud profiles but should not be required for on-prem if `baseUrl` already contains the collection.
+- `patRef` is optional. When set, the profile reads its PAT from that shared keyring reference; when omitted, the profile name is used as the keyring reference.
 - `apiVersion` should default to `"7.1"` when omitted.
 - `proxy` should be optional.
 
