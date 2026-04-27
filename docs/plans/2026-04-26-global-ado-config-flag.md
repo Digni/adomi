@@ -9,8 +9,8 @@ Add explicit global config support and a config initialization workflow for Azur
 The central behavior is:
 
 - `--global` on config-consuming commands means "read Azure DevOps profiles from `~/.config/adomi/config.yaml` and ignore repo-local `.adomi/config.yaml`."
-- `adomi ado config init` creates a repo-local config template at `<repo-root>/.adomi/config.yaml`.
-- `adomi ado config init --global` creates a global config template at `~/.config/adomi/config.yaml`.
+- `adomi config init` creates a repo-local config template at `<repo-root>/.adomi/config.yaml` (`adomi ado config init` remains as a hidden compatibility alias).
+- `adomi config init --global` creates a global config template at `~/.config/adomi/config.yaml`.
 - Config init writes a fully commented-out YAML template. It may prefill suggested values, but every line remains commented so the user must intentionally enable/edit it.
 - PAT login/logout remain profile-based and shared; they do not get separate local/global credential storage.
 
@@ -23,11 +23,11 @@ The central behavior is:
 - `adomi ado profiles list --global`
   - Lists profiles from global config only.
   - Works outside a Git repo.
-- `adomi ado config init`
+- `adomi config init`
   - Requires a Git repo.
   - Creates `<repo-root>/.adomi/config.yaml`.
   - If an Azure DevOps remote is detectable from the repo, pre-fills commented `baseUrl`, `organization`, `project`, and profile name suggestions.
-- `adomi ado config init --global`
+- `adomi config init --global`
   - Creates `~/.config/adomi/config.yaml`.
   - If run from inside a Git repo and an Azure DevOps remote is detectable, uses the same commented prefill behavior.
   - If not in a Git repo or no ADO remote is detectable, still creates a generic commented template.
@@ -76,7 +76,7 @@ In CLI parsing:
 
 ### Config Init
 
-Add `adomi ado config init [--global]`.
+Add `adomi config init [--global]` and keep `adomi ado config init [--global]` as a hidden compatibility alias.
 
 Path behavior:
 
@@ -163,11 +163,11 @@ Write failing tests first.
    - `ado profiles list --global` does not call `FindRepoRoot` and lists global profiles.
    - `ado profiles list --unknown` is rejected.
    - `ado login --global --profile name` is rejected as unknown, documenting that credentials are not scoped by config location.
-   - `ado config init` creates repo-local config and prints only the path.
-   - `ado config init --global` creates global config and prints only the path.
-   - `ado config init --global` outside a repo still creates the global generic template.
-   - `ado config init` refuses to overwrite an existing file.
-   - `ado config init` uses injected ADO remote URLs to prefill commented values.
+   - `config init` creates repo-local config and prints only the path.
+   - `config init --global` creates global config and prints only the path.
+   - `config init --global` outside a repo still creates the global generic template.
+   - `config init` refuses to overwrite an existing file.
+   - `config init` uses injected ADO remote URLs to prefill commented values.
 
 Verification checkpoints:
 

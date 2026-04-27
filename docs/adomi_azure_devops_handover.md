@@ -84,7 +84,11 @@ Optional but useful:
 
 ```bash
 adomi ado profiles list
+adomi config init
+adomi config init --global
 ```
+
+`adomi ado config init` is retained only as a hidden compatibility alias; prefer `adomi config init` in user-facing docs and scripts.
 
 ---
 
@@ -205,9 +209,10 @@ Use:
 ```bash
 go get github.com/zalando/go-keyring
 go get gopkg.in/yaml.v3
+go get github.com/spf13/cobra
 ```
 
-Avoid Cobra for the MVP. Standard-library argument parsing is enough.
+The MVP originally avoided Cobra, but the post-MVP CLI now uses Cobra for command hierarchy, help, and usage behavior while keeping command actions in `internal/cli` testable.
 
 ---
 

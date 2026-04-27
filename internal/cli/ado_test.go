@@ -505,15 +505,24 @@ func TestADOProfilesListRejectsUnknownArgs(t *testing.T) {
 	}
 }
 
-func TestADOUsageIncludesConfigCommand(t *testing.T) {
+func TestADOHelpOmitsHiddenConfigCommand(t *testing.T) {
 	runner := Runner{deps: Dependencies{}}
+	var stdout, stderr bytes.Buffer
 
-	err := runner.Run([]string{"ado"}, strings.NewReader(""), &bytes.Buffer{}, &bytes.Buffer{})
-	if err == nil {
-		t.Fatal("Run error = nil, want usage error")
+	err := runner.Run([]string{"ado", "--help"}, strings.NewReader(""), &stdout, &stderr)
+	if err != nil {
+		t.Fatalf("Run returned error: %v", err)
 	}
-	if !strings.Contains(err.Error(), "config") {
-		t.Fatalf("error = %q, want config command in usage", err.Error())
+	if stdout.String() != "" {
+		t.Fatalf("stdout = %q, want empty", stdout.String())
+	}
+	if strings.Contains(stderr.String(), "config") {
+		t.Fatalf("stderr = %q, want hidden config alias omitted", stderr.String())
+	}
+	for _, want := range []string{"fetch", "login", "logout", "profiles"} {
+		if !strings.Contains(stderr.String(), want) {
+			t.Fatalf("stderr = %q, want %q", stderr.String(), want)
+		}
 	}
 }
 
@@ -575,7 +584,34 @@ func TestADOLogoutRejectsInvalidCredentialArgs(t *testing.T) {
 	}
 }
 
-func TestADOConfigInitCreatesRepoConfig(t *testing.T) {
+func TestConfigInitCreatesRepoConfig(t *testing.T) {
+	repoRoot := t.TempDir()
+	runner := Runner{deps: Dependencies{
+		Getwd:        func() (string, error) { return filepath.Join(repoRoot, "subdir"), nil },
+		UserHomeDir:  func() (string, error) { return "", errors.New("home should not be required") },
+		FindRepoRoot: func(string) (string, error) { return repoRoot, nil },
+		RemoteURLs:   func(string) ([]string, error) { return nil, nil },
+	}}
+	var stdout bytes.Buffer
+
+	err := runner.Run([]string{"config", "init"}, strings.NewReader(""), &stdout, &bytes.Buffer{})
+	if err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+	configPath := filepath.Join(repoRoot, ".adomi", "config.yaml")
+	if strings.TrimSpace(stdout.String()) != configPath {
+		t.Fatalf("stdout = %q, want config path", stdout.String())
+	}
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("reading config: %v", err)
+	}
+	assertAllCommented(t, string(data))
+	assertPathPerm(t, filepath.Dir(configPath), 0o700)
+	assertPathPerm(t, configPath, 0o600)
+}
+
+func TestADOConfigInitCreatesRepoConfigCompatibilityAlias(t *testing.T) {
 	repoRoot := t.TempDir()
 	runner := Runner{deps: Dependencies{
 		Getwd:        func() (string, error) { return filepath.Join(repoRoot, "subdir"), nil },
@@ -593,13 +629,6 @@ func TestADOConfigInitCreatesRepoConfig(t *testing.T) {
 	if strings.TrimSpace(stdout.String()) != configPath {
 		t.Fatalf("stdout = %q, want config path", stdout.String())
 	}
-	data, err := os.ReadFile(configPath)
-	if err != nil {
-		t.Fatalf("reading config: %v", err)
-	}
-	assertAllCommented(t, string(data))
-	assertPathPerm(t, filepath.Dir(configPath), 0o700)
-	assertPathPerm(t, configPath, 0o600)
 }
 
 func TestADOConfigInitOutsideRepoReturnsError(t *testing.T) {
@@ -632,7 +661,7 @@ func TestADOConfigInitGlobalCreatesHomeConfigOutsideRepo(t *testing.T) {
 	}}
 	var stdout bytes.Buffer
 
-	err := runner.Run([]string{"ado", "config", "init", "--global"}, strings.NewReader(""), &stdout, &bytes.Buffer{})
+	err := runner.Run([]string{"config", "init", "--global"}, strings.NewReader(""), &stdout, &bytes.Buffer{})
 	if err != nil {
 		t.Fatalf("Run returned error: %v", err)
 	}
@@ -708,7 +737,7 @@ func TestADOConfigInitRejectsExistingSymlink(t *testing.T) {
 func TestADOConfigInitRejectsUnknownArgs(t *testing.T) {
 	runner := Runner{deps: Dependencies{}}
 
-	err := runner.Run([]string{"ado", "config", "init", "--unknown"}, strings.NewReader(""), &bytes.Buffer{}, &bytes.Buffer{})
+	err := runner.Run([]string{"config", "init", "--unknown"}, strings.NewReader(""), &bytes.Buffer{}, &bytes.Buffer{})
 	if err == nil {
 		t.Fatal("Run error = nil, want unknown argument error")
 	}

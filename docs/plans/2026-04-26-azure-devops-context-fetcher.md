@@ -4,9 +4,9 @@
 
 **Goal:** Build the Go MVP CLI described in `adomi_azure_devops_handover.md` so `adomi ado fetch <id>` writes Azure DevOps work item context under the current repository's `.adomi` directory and prints only the generated folder path.
 
-**Architecture:** Keep the CLI thin and split behavior into focused internal packages: workspace discovery, YAML configuration, secure PAT storage, Azure DevOps API access, traversal, attachment handling, and export. Use standard-library command parsing as required by the handover, with tests around each package-level boundary before wiring the final command.
+**Architecture:** Keep the CLI thin and split behavior into focused internal packages: workspace discovery, YAML configuration, secure PAT storage, Azure DevOps API access, traversal, attachment handling, and export. This MVP plan originally used standard-library command parsing; the post-MVP CLI has since moved to Cobra for command hierarchy while preserving the same internal package boundaries.
 
-**Tech Stack:** Go 1.26.2, `gopkg.in/yaml.v3`, `github.com/zalando/go-keyring`, standard `net/http`, `httptest`, and `testing`.
+**Tech Stack:** Go 1.26.2, `gopkg.in/yaml.v3`, `github.com/zalando/go-keyring`, `github.com/spf13/cobra`, standard `net/http`, `httptest`, and `testing`.
 
 ---
 
@@ -20,7 +20,7 @@
 - Config format and precedence are specified at `adomi_azure_devops_handover.md:91-132`.
 - Output layout is specified at `adomi_azure_devops_handover.md:136-170`.
 - Suggested package/file structure is specified at `adomi_azure_devops_handover.md:174-194`.
-- Dependencies and the "no Cobra" constraint are specified at `adomi_azure_devops_handover.md:198-207`.
+- Dependencies are specified at `adomi_azure_devops_handover.md:198-207`; the old MVP-only "no Cobra" constraint has been superseded by the post-MVP Cobra command tree.
 - Azure DevOps URL, auth, proxy, traversal, attachment, export, and stdout contracts are specified at `adomi_azure_devops_handover.md:253-455`.
 - Acceptance criteria and required tests are specified at `adomi_azure_devops_handover.md:459-507`.
 - Current branch is `feature/ado-fetch`, while the handover suggested `feature/azure-devops-context-fetcher` from `main`. This plan assumes continuing on the current branch unless the user asks for the exact branch name before approval.

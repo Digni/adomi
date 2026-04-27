@@ -14,6 +14,7 @@ import (
 	"github.com/Digni/adomi/internal/config"
 	"github.com/Digni/adomi/internal/securestore"
 	"github.com/Digni/adomi/internal/workspace"
+	"github.com/spf13/cobra"
 )
 
 func Run(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
@@ -57,16 +58,125 @@ func NewRunner() Runner {
 }
 
 func (r Runner) Run(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
-	if len(args) == 0 {
-		return fmt.Errorf("usage: adomi ado <command>")
-	}
+	cmd := r.newRootCommand(stdin, stdout, stderr)
+	cmd.SetArgs(args)
+	return cmd.Execute()
+}
 
-	switch args[0] {
-	case "ado":
-		return r.runADO(args[1:], stdin, stdout, stderr)
-	default:
-		return fmt.Errorf("unknown command %q", args[0])
+func (r Runner) newRootCommand(stdin io.Reader, stdout, stderr io.Writer) *cobra.Command {
+	rootCmd := &cobra.Command{
+		Use:           "adomi",
+		Short:         "Fetch and manage agent context",
+		SilenceUsage:  true,
+		SilenceErrors: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			_ = cmd.Help()
+			return fmt.Errorf("usage: adomi <command>")
+		},
 	}
+	rootCmd.CompletionOptions.DisableDefaultCmd = true
+	rootCmd.SetIn(stdin)
+	rootCmd.SetOut(stderr)
+	rootCmd.SetErr(stderr)
+	rootCmd.AddCommand(r.newConfigCommand(stdout), r.newADOCommand(stdin, stdout, stderr))
+	return rootCmd
+}
+
+func (r Runner) newConfigCommand(stdout io.Writer) *cobra.Command {
+	configCmd := &cobra.Command{
+		Use:   "config",
+		Short: "Manage adomi configuration",
+	}
+	configCmd.AddCommand(r.newConfigInitCommand(stdout))
+	return configCmd
+}
+
+func (r Runner) newConfigInitCommand(stdout io.Writer) *cobra.Command {
+	return &cobra.Command{
+		Use:                "init [--global]",
+		Short:              "Create an adomi configuration template",
+		DisableFlagParsing: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return r.runADOConfigInit(args, stdout)
+		},
+	}
+}
+
+func (r Runner) newADOCommand(stdin io.Reader, stdout, stderr io.Writer) *cobra.Command {
+	adoCmd := &cobra.Command{
+		Use:   "ado",
+		Short: "Manage Azure DevOps context and credentials",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			_ = cmd.Help()
+			return fmt.Errorf("usage: adomi ado <command>")
+		},
+	}
+	adoCmd.AddCommand(
+		r.newADOFetchCommand(stdout),
+		r.newADOLoginCommand(stdin, stderr),
+		r.newADOLogoutCommand(),
+		r.newADOProfilesCommand(stdout),
+		r.newADOConfigAliasCommand(stdout),
+	)
+	return adoCmd
+}
+
+func (r Runner) newADOFetchCommand(stdout io.Writer) *cobra.Command {
+	return &cobra.Command{
+		Use:                "fetch <work-item-id> [--profile <profile-name>] [--global]",
+		Short:              "Fetch Azure DevOps work item context",
+		DisableFlagParsing: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return r.runADOFetch(args, stdout)
+		},
+	}
+}
+
+func (r Runner) newADOLoginCommand(stdin io.Reader, stderr io.Writer) *cobra.Command {
+	return &cobra.Command{
+		Use:                "login (--profile <profile-name> | --pat-ref <ref>) [--global]",
+		Short:              "Store an Azure DevOps PAT",
+		DisableFlagParsing: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return r.runADOLogin(args, stdin, stderr)
+		},
+	}
+}
+
+func (r Runner) newADOLogoutCommand() *cobra.Command {
+	return &cobra.Command{
+		Use:                "logout (--profile <profile-name> | --pat-ref <ref>) [--global]",
+		Short:              "Delete an Azure DevOps PAT",
+		DisableFlagParsing: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return r.runADOLogout(args)
+		},
+	}
+}
+
+func (r Runner) newADOProfilesCommand(stdout io.Writer) *cobra.Command {
+	profilesCmd := &cobra.Command{
+		Use:   "profiles",
+		Short: "Manage Azure DevOps profiles",
+	}
+	profilesCmd.AddCommand(&cobra.Command{
+		Use:                "list [--global]",
+		Short:              "List configured Azure DevOps profiles",
+		DisableFlagParsing: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return r.runADOProfilesList(args, stdout)
+		},
+	})
+	return profilesCmd
+}
+
+func (r Runner) newADOConfigAliasCommand(stdout io.Writer) *cobra.Command {
+	configCmd := &cobra.Command{
+		Use:    "config",
+		Hidden: true,
+	}
+	configCmd.AddCommand(r.newConfigInitCommand(stdout))
+	return configCmd
 }
 
 func (r Runner) dependencies() Dependencies {

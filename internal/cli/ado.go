@@ -16,33 +16,6 @@ import (
 	"golang.org/x/term"
 )
 
-func (r Runner) runADO(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
-	if len(args) == 0 {
-		return fmt.Errorf("usage: adomi ado <fetch|login|logout|profiles|config>")
-	}
-
-	switch args[0] {
-	case "fetch":
-		return r.runADOFetch(args[1:], stdout)
-	case "login":
-		return r.runADOLogin(args[1:], stdin, stderr)
-	case "logout":
-		return r.runADOLogout(args[1:])
-	case "profiles":
-		if len(args) >= 2 && args[1] == "list" {
-			return r.runADOProfilesList(args[2:], stdout)
-		}
-		return fmt.Errorf("usage: adomi ado profiles list")
-	case "config":
-		if len(args) >= 2 && args[1] == "init" {
-			return r.runADOConfigInit(args[2:], stdout)
-		}
-		return fmt.Errorf("usage: adomi ado config init [--global]")
-	default:
-		return fmt.Errorf("unknown ado command %q", args[0])
-	}
-}
-
 func (r Runner) runADOFetch(args []string, stdout io.Writer) error {
 	fetchArgs, err := parseFetchArgs(args)
 	if err != nil {
@@ -367,26 +340,6 @@ func parsePATRefValue(value string) (string, error) {
 		return "", fmt.Errorf("patRef %w", err)
 	}
 	return ref, nil
-}
-
-func parseProfileFlag(args []string, required bool) (string, error) {
-	var profile string
-	for i := 0; i < len(args); i++ {
-		switch args[i] {
-		case "--profile":
-			if i+1 >= len(args) || args[i+1] == "" || strings.HasPrefix(args[i+1], "-") {
-				return "", fmt.Errorf("--profile requires a value")
-			}
-			profile = args[i+1]
-			i++
-		default:
-			return "", fmt.Errorf("unknown argument %q", args[i])
-		}
-	}
-	if required && profile == "" {
-		return "", fmt.Errorf("--profile is required")
-	}
-	return profile, nil
 }
 
 type fetchArgs struct {
