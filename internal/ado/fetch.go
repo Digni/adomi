@@ -22,6 +22,7 @@ func FetchTree(ctx context.Context, fetcher WorkItemFetcher, rootID int) (*WorkI
 	tree := &WorkItemTree{RootID: rootID}
 	visited := map[int]bool{}
 	currentID := rootID
+	var rootItem WorkItem
 
 	for {
 		if visited[currentID] {
@@ -32,6 +33,9 @@ func FetchTree(ctx context.Context, fetcher WorkItemFetcher, rootID int) (*WorkI
 		item, err := fetcher.FetchWorkItem(ctx, currentID)
 		if err != nil {
 			return nil, fmt.Errorf("fetching work item %d: %w", currentID, err)
+		}
+		if item.ID == rootID {
+			rootItem = *item
 		}
 		tree.WorkItems = append(tree.WorkItems, *item)
 
@@ -54,13 +58,37 @@ func FetchTree(ctx context.Context, fetcher WorkItemFetcher, rootID int) (*WorkI
 		currentID = parentID
 	}
 
+	for _, childRelation := range rootItem.ChildRelations() {
+		childID, err := ChildIDFromRelation(childRelation)
+		if err != nil {
+			return nil, err
+		}
+		if visited[childID] {
+			continue
+		}
+		visited[childID] = true
+		child, err := fetcher.FetchWorkItem(ctx, childID)
+		if err != nil {
+			return nil, fmt.Errorf("fetching child work item %d: %w", childID, err)
+		}
+		tree.WorkItems = append(tree.WorkItems, *child)
+	}
+
 	return tree, nil
 }
 
 func ParentIDFromRelation(relation Relation) (int, error) {
+	return workItemIDFromRelation("parent", relation)
+}
+
+func ChildIDFromRelation(relation Relation) (int, error) {
+	return workItemIDFromRelation("child", relation)
+}
+
+func workItemIDFromRelation(kind string, relation Relation) (int, error) {
 	parsed, err := url.Parse(relation.URL)
 	if err != nil {
-		return 0, fmt.Errorf("parsing parent relation URL %q: %w", relation.URL, err)
+		return 0, fmt.Errorf("parsing %s relation URL %q: %w", kind, relation.URL, err)
 	}
 
 	segments := strings.Split(parsed.Path, "/")
@@ -75,5 +103,5 @@ func ParentIDFromRelation(relation Relation) (int, error) {
 		}
 	}
 
-	return 0, fmt.Errorf("parent relation URL %q does not contain a numeric work item ID", relation.URL)
+	return 0, fmt.Errorf("%s relation URL %q does not contain a numeric work item ID", kind, relation.URL)
 }

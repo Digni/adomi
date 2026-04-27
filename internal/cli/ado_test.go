@@ -808,9 +808,13 @@ func TestADOFetchWithRealWiringWritesContextAndPrintsOnlyPath(t *testing.T) {
 		}
 		switch r.URL.Path {
 		case "/MyProject/_apis/wit/workitems/12345":
-			fmt.Fprintf(w, `{"id":12345,"fields":{"System.WorkItemType":"Task","System.Title":"Task title"},"relations":[{"rel":"AttachedFile","url":%q,"attributes":{"name":"note.txt"}}]}`, baseURL+"/_apis/wit/attachments/note")
+			fmt.Fprintf(w, `{"id":12345,"fields":{"System.WorkItemType":"Task","System.Title":"Task title"},"relations":[{"rel":"System.LinkTypes.Hierarchy-Forward","url":%q},{"rel":"AttachedFile","url":%q,"attributes":{"name":"note.txt"}}]}`, baseURL+"/MyProject/_apis/wit/workItems/12346", baseURL+"/_apis/wit/attachments/note")
+		case "/MyProject/_apis/wit/workitems/12346":
+			fmt.Fprintf(w, `{"id":12346,"fields":{"System.WorkItemType":"Task","System.Title":"Child task"},"relations":[{"rel":"AttachedFile","url":%q,"attributes":{"name":"child-note.txt"}}]}`, baseURL+"/_apis/wit/attachments/child-note")
 		case "/_apis/wit/attachments/note":
 			fmt.Fprint(w, "attachment")
+		case "/_apis/wit/attachments/child-note":
+			fmt.Fprint(w, "child attachment")
 		default:
 			t.Fatalf("unexpected path %q", r.URL.Path)
 		}
@@ -860,8 +864,13 @@ azureDevOps:
 	assertLocalFile(t, filepath.Join(outputDir, "index.json"))
 	assertLocalFile(t, filepath.Join(outputDir, "tree.json"))
 	assertLocalFile(t, filepath.Join(outputDir, "work-items", "12345.json"))
+	assertLocalFile(t, filepath.Join(outputDir, "work-items", "12346.json"))
 	assertLocalFile(t, filepath.Join(outputDir, "html", "12345.html"))
+	assertLocalFile(t, filepath.Join(outputDir, "html", "12346.html"))
 	assertLocalFile(t, filepath.Join(outputDir, "attachments", "12345", "note.txt"))
+	assertLocalFile(t, filepath.Join(outputDir, "attachments", "12346", "child-note.txt"))
+	assertFileContains(t, filepath.Join(outputDir, "index.json"), "12346")
+	assertFileContains(t, filepath.Join(outputDir, "tree.json"), "Child task")
 }
 
 type fakeADOClient struct{}
@@ -921,6 +930,17 @@ func assertLocalFile(t *testing.T, path string) {
 	t.Helper()
 	if _, err := os.Stat(path); err != nil {
 		t.Fatalf("expected file %s: %v", path, err)
+	}
+}
+
+func assertFileContains(t *testing.T, path, want string) {
+	t.Helper()
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("reading %s: %v", path, err)
+	}
+	if !strings.Contains(string(content), want) {
+		t.Fatalf("%s does not contain %q", path, want)
 	}
 }
 

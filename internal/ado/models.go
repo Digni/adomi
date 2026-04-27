@@ -2,6 +2,7 @@ package ado
 
 const (
 	parentRelationType     = "System.LinkTypes.Hierarchy-Reverse"
+	childRelationType      = "System.LinkTypes.Hierarchy-Forward"
 	attachmentRelationType = "AttachedFile"
 )
 
@@ -37,6 +38,16 @@ func (w WorkItem) ParentRelation() (Relation, bool) {
 		}
 	}
 	return Relation{}, false
+}
+
+func (w WorkItem) ChildRelations() []Relation {
+	var children []Relation
+	for _, relation := range w.Relations {
+		if relation.Rel == childRelationType {
+			children = append(children, relation)
+		}
+	}
+	return children
 }
 
 func (w WorkItem) AttachmentRelations() []Relation {
