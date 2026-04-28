@@ -35,6 +35,7 @@ type PATStore interface {
 type ADOClient interface {
 	ado.WorkItemFetcher
 	ado.AttachmentDownloader
+	ado.PullRequestFetcher
 }
 
 type Dependencies struct {
@@ -48,9 +49,11 @@ type Dependencies struct {
 	RemoteURLs    func(repoRoot string) ([]string, error)
 	NewHTTPClient func(proxyURL string) (*http.Client, error)
 	NewADOClient  func(httpClient *http.Client, cfg ado.ClientConfig) (ADOClient, error)
-	FetchTree     func(ctx context.Context, fetcher ado.WorkItemFetcher, rootID int) (*ado.WorkItemTree, error)
-	ExportContext func(ctx context.Context, downloader ado.AttachmentDownloader, opts ado.ExportOptions, tree *ado.WorkItemTree) (string, error)
-	Now           func() time.Time
+	FetchTree         func(ctx context.Context, fetcher ado.WorkItemFetcher, rootID int) (*ado.WorkItemTree, error)
+	ExportContext     func(ctx context.Context, downloader ado.AttachmentDownloader, opts ado.ExportOptions, tree *ado.WorkItemTree) (string, error)
+	FetchPullRequest  func(ctx context.Context, fetcher ado.PullRequestFetcher, id int) (*ado.PullRequestBundle, error)
+	ExportPullRequest func(opts ado.PullRequestExportOptions, bundle *ado.PullRequestBundle) (string, error)
+	Now               func() time.Time
 }
 
 func NewRunner() Runner {
@@ -113,6 +116,7 @@ func (r Runner) newADOCommand(stdin io.Reader, stdout, stderr io.Writer) *cobra.
 	}
 	adoCmd.AddCommand(
 		r.newADOFetchCommand(stdout),
+		r.newADOPullRequestCommand(stdout),
 		r.newADOLoginCommand(stdin, stderr),
 		r.newADOLogoutCommand(),
 		r.newADOProfilesCommand(stdout),
@@ -128,6 +132,17 @@ func (r Runner) newADOFetchCommand(stdout io.Writer) *cobra.Command {
 		DisableFlagParsing: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return r.runADOFetch(args, stdout)
+		},
+	}
+}
+
+func (r Runner) newADOPullRequestCommand(stdout io.Writer) *cobra.Command {
+	return &cobra.Command{
+		Use:                "pr <pull-request-id> [--profile <profile-name>] [--global]",
+		Short:              "Fetch Azure DevOps pull request comments",
+		DisableFlagParsing: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return r.runADOPullRequest(args, stdout)
 		},
 	}
 }
@@ -218,6 +233,12 @@ func (r Runner) dependencies() Dependencies {
 	if deps.ExportContext == nil {
 		deps.ExportContext = defaults.ExportContext
 	}
+	if deps.FetchPullRequest == nil {
+		deps.FetchPullRequest = defaults.FetchPullRequest
+	}
+	if deps.ExportPullRequest == nil {
+		deps.ExportPullRequest = defaults.ExportPullRequest
+	}
 	if deps.Now == nil {
 		deps.Now = defaults.Now
 	}
@@ -238,9 +259,11 @@ func defaultDependencies() Dependencies {
 		NewADOClient: func(httpClient *http.Client, cfg ado.ClientConfig) (ADOClient, error) {
 			return ado.NewClient(httpClient, cfg)
 		},
-		FetchTree:     ado.FetchTree,
-		ExportContext: ado.ExportContext,
-		Now:           time.Now,
+		FetchTree:         ado.FetchTree,
+		ExportContext:     ado.ExportContext,
+		FetchPullRequest:  ado.FetchPullRequestBundle,
+		ExportPullRequest: ado.ExportPullRequest,
+		Now:               time.Now,
 	}
 }
 
