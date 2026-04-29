@@ -39,16 +39,16 @@ type ADOClient interface {
 }
 
 type Dependencies struct {
-	PATStore      PATStore
-	ReadSecret    func(prompt string, stdin io.Reader, stderr io.Writer) (string, error)
-	Getwd         func() (string, error)
-	UserHomeDir   func() (string, error)
-	FindRepoRoot  func(start string) (string, error)
-	LoadConfig    func(repoRoot, homeDir, requestedProfile string, scope config.Scope) (*config.Loaded, error)
-	LoadAllConfig func(repoRoot, homeDir string, scope config.Scope) (*config.Loaded, error)
-	RemoteURLs    func(repoRoot string) ([]string, error)
-	NewHTTPClient func(proxyURL string) (*http.Client, error)
-	NewADOClient  func(httpClient *http.Client, cfg ado.ClientConfig) (ADOClient, error)
+	PATStore          PATStore
+	ReadSecret        func(prompt string, stdin io.Reader, stderr io.Writer) (string, error)
+	Getwd             func() (string, error)
+	UserHomeDir       func() (string, error)
+	FindRepoRoot      func(start string) (string, error)
+	LoadConfig        func(repoRoot, homeDir, requestedProfile string, scope config.Scope) (*config.Loaded, error)
+	LoadAllConfig     func(repoRoot, homeDir string, scope config.Scope) (*config.Loaded, error)
+	RemoteURLs        func(repoRoot string) ([]string, error)
+	NewHTTPClient     func(proxyURL string) (*http.Client, error)
+	NewADOClient      func(httpClient *http.Client, cfg ado.ClientConfig) (ADOClient, error)
 	FetchTree         func(ctx context.Context, fetcher ado.WorkItemFetcher, rootID int) (*ado.WorkItemTree, error)
 	ExportContext     func(ctx context.Context, downloader ado.AttachmentDownloader, opts ado.ExportOptions, tree *ado.WorkItemTree) (string, error)
 	FetchPullRequest  func(ctx context.Context, fetcher ado.PullRequestFetcher, id int) (*ado.PullRequestBundle, error)
@@ -81,7 +81,7 @@ func (r Runner) newRootCommand(stdin io.Reader, stdout, stderr io.Writer) *cobra
 	rootCmd.SetIn(stdin)
 	rootCmd.SetOut(stderr)
 	rootCmd.SetErr(stderr)
-	rootCmd.AddCommand(r.newConfigCommand(stdout), r.newADOCommand(stdin, stdout, stderr))
+	rootCmd.AddCommand(r.newAgentCommand(stdout), r.newConfigCommand(stdout), r.newADOCommand(stdin, stdout, stderr))
 	return rootCmd
 }
 

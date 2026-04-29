@@ -28,7 +28,7 @@ func TestMainPrintsErrorsToStderrAndExitsNonZero(t *testing.T) {
 	if stdout.String() != "" {
 		t.Fatalf("stdout = %q, want empty", stdout.String())
 	}
-	if !strings.Contains(stderr.String(), "Usage:") || !strings.Contains(stderr.String(), "config") || !strings.Contains(stderr.String(), "ado") {
+	if !strings.Contains(stderr.String(), "Usage:") || !strings.Contains(stderr.String(), "agent") || !strings.Contains(stderr.String(), "config") || !strings.Contains(stderr.String(), "ado") {
 		t.Fatalf("stderr = %q, want top-level usage error", stderr.String())
 	}
 }
