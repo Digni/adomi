@@ -61,6 +61,10 @@ The system SHALL preserve Azure DevOps-specific commands under `adomi ado`.
 - **WHEN** the requested Azure DevOps work item has direct child relations
 - **THEN** each direct child work item is fetched and included in the exported JSON, HTML, tree, index, and attachment context alongside the requested item and parent chain
 
+#### Scenario: Fetch pull request comments
+- **WHEN** the user runs `adomi ado pr <pull-request-id>` with valid configuration and credentials
+- **THEN** the command fetches the pull request, downloads all comment threads, exports them under the repository-local `.adomi/azure-devops/<profile>/<project>/pull-requests/<id>/` directory, and prints only the exported directory path to stdout
+
 #### Scenario: Manage credentials
 - **WHEN** the user runs `adomi ado login` or `adomi ado logout` with valid credential flags
 - **THEN** the command stores or deletes credentials using the same profile and `patRef` behavior as before
