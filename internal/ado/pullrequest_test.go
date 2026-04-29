@@ -340,6 +340,68 @@ func TestExportPullRequestWritesCanonicalLayout(t *testing.T) {
 	}
 }
 
+func TestExportPullRequestEscapesMarkdownMetadata(t *testing.T) {
+	repoRoot := t.TempDir()
+	bundle := &PullRequestBundle{
+		PullRequest: &PullRequest{
+			ID:            42,
+			Title:         "Fix [bug] *now*",
+			Status:        "active",
+			SourceRefName: "refs/heads/feature/_x_",
+			TargetRefName: "refs/heads/main",
+			Repository:    PullRequestRepo{ID: "repo", Name: "ado_mi"},
+		},
+		Threads: []PullRequestThread{{
+			ID:     1,
+			Status: "active",
+			Comments: []PullRequestComment{{
+				ID:            10,
+				Author:        map[string]any{"displayName": "Eve_Polastri"},
+				Content:       "raw *content* should remain raw",
+				PublishedDate: "2026-04-28T08:00:00Z",
+			}},
+			ThreadContext: &ThreadContext{FilePath: "/path/with_underscores/main.go"},
+		}},
+	}
+
+	outputDir, err := ExportPullRequest(PullRequestExportOptions{
+		RepoRoot: repoRoot,
+		Profile:  "company-cloud",
+		Project:  "MyProject",
+	}, bundle)
+	if err != nil {
+		t.Fatalf("ExportPullRequest returned error: %v", err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(outputDir, "comments.md"))
+	if err != nil {
+		t.Fatalf("reading comments.md: %v", err)
+	}
+	got := string(data)
+
+	if strings.Contains(got, "# PR 42: Fix [bug] *now*") {
+		t.Fatalf("title was not escaped:\n%s", got)
+	}
+	if !strings.Contains(got, `Fix \[bug\] \*now\*`) {
+		t.Fatalf("title escape sequence missing:\n%s", got)
+	}
+	if !strings.Contains(got, "**Eve\\_Polastri**") {
+		t.Fatalf("author escape missing:\n%s", got)
+	}
+	if !strings.Contains(got, "`/path/with_underscores/main.go`") {
+		t.Fatalf("file path inline code missing:\n%s", got)
+	}
+	if !strings.Contains(got, "`refs/heads/feature/_x_`") {
+		t.Fatalf("source ref inline code missing:\n%s", got)
+	}
+	if !strings.Contains(got, "`ado_mi`") {
+		t.Fatalf("repository inline code missing:\n%s", got)
+	}
+	if !strings.Contains(got, "raw *content* should remain raw") {
+		t.Fatalf("comment body should not be escaped:\n%s", got)
+	}
+}
+
 func TestExportPullRequestRemovesStaleFilesFromPreviousRun(t *testing.T) {
 	repoRoot := t.TempDir()
 	outputDir := PullRequestOutputPath(repoRoot, "company-cloud", "MyProject", 42)

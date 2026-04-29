@@ -47,12 +47,11 @@ type PullRequestThread struct {
 }
 
 type ThreadContext struct {
-	FilePath       string         `json:"filePath,omitempty"`
-	LeftFileStart  *FilePosition  `json:"leftFileStart,omitempty"`
-	LeftFileEnd    *FilePosition  `json:"leftFileEnd,omitempty"`
-	RightFileStart *FilePosition  `json:"rightFileStart,omitempty"`
-	RightFileEnd   *FilePosition  `json:"rightFileEnd,omitempty"`
-	Extra          map[string]any `json:"-"`
+	FilePath       string        `json:"filePath,omitempty"`
+	LeftFileStart  *FilePosition `json:"leftFileStart,omitempty"`
+	LeftFileEnd    *FilePosition `json:"leftFileEnd,omitempty"`
+	RightFileStart *FilePosition `json:"rightFileStart,omitempty"`
+	RightFileEnd   *FilePosition `json:"rightFileEnd,omitempty"`
 }
 
 type FilePosition struct {
@@ -61,15 +60,15 @@ type FilePosition struct {
 }
 
 type PullRequestComment struct {
-	ID              int            `json:"id"`
-	ParentCommentID int            `json:"parentCommentId,omitempty"`
-	Author          map[string]any `json:"author,omitempty"`
-	Content         string         `json:"content,omitempty"`
-	PublishedDate   string         `json:"publishedDate,omitempty"`
-	LastUpdatedDate string         `json:"lastUpdatedDate,omitempty"`
-	LastContentUpdatedDate string  `json:"lastContentUpdatedDate,omitempty"`
-	CommentType     string         `json:"commentType,omitempty"`
-	IsDeleted       bool           `json:"isDeleted,omitempty"`
+	ID                     int            `json:"id"`
+	ParentCommentID        int            `json:"parentCommentId,omitempty"`
+	Author                 map[string]any `json:"author,omitempty"`
+	Content                string         `json:"content,omitempty"`
+	PublishedDate          string         `json:"publishedDate,omitempty"`
+	LastUpdatedDate        string         `json:"lastUpdatedDate,omitempty"`
+	LastContentUpdatedDate string         `json:"lastContentUpdatedDate,omitempty"`
+	CommentType            string         `json:"commentType,omitempty"`
+	IsDeleted              bool           `json:"isDeleted,omitempty"`
 }
 
 type PullRequestThreadsResponse struct {
@@ -246,15 +245,15 @@ func nonDeletedCommentCount(comments []PullRequestComment) int {
 
 func renderPullRequestCommentsMarkdown(pr *PullRequest, threads []PullRequestThread) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "# PR %d: %s\n\n", pr.ID, pr.Title)
+	fmt.Fprintf(&b, "# PR %d: %s\n\n", pr.ID, escapeMarkdownText(pr.Title))
 	if pr.Status != "" {
-		fmt.Fprintf(&b, "- Status: %s\n", pr.Status)
+		fmt.Fprintf(&b, "- Status: %s\n", inlineCode(pr.Status))
 	}
 	if pr.SourceRefName != "" || pr.TargetRefName != "" {
-		fmt.Fprintf(&b, "- Branches: %s -> %s\n", pr.SourceRefName, pr.TargetRefName)
+		fmt.Fprintf(&b, "- Branches: %s -> %s\n", inlineCode(pr.SourceRefName), inlineCode(pr.TargetRefName))
 	}
 	if pr.Repository.Name != "" {
-		fmt.Fprintf(&b, "- Repository: %s\n", pr.Repository.Name)
+		fmt.Fprintf(&b, "- Repository: %s\n", inlineCode(pr.Repository.Name))
 	}
 	b.WriteString("\n")
 	if len(threads) == 0 {
@@ -267,11 +266,11 @@ func renderPullRequestCommentsMarkdown(pr *PullRequest, threads []PullRequestThr
 		}
 		fmt.Fprintf(&b, "## Thread %d", thread.ID)
 		if thread.Status != "" {
-			fmt.Fprintf(&b, " (%s)", thread.Status)
+			fmt.Fprintf(&b, " (%s)", inlineCode(thread.Status))
 		}
 		b.WriteString("\n")
 		if thread.ThreadContext != nil && thread.ThreadContext.FilePath != "" {
-			fmt.Fprintf(&b, "- File: %s\n", thread.ThreadContext.FilePath)
+			fmt.Fprintf(&b, "- File: %s\n", inlineCode(thread.ThreadContext.FilePath))
 		}
 		b.WriteString("\n")
 		for _, comment := range thread.Comments {
@@ -280,12 +279,52 @@ func renderPullRequestCommentsMarkdown(pr *PullRequest, threads []PullRequestThr
 			}
 			author := authorDisplay(comment.Author)
 			date := comment.PublishedDate
-			fmt.Fprintf(&b, "**%s** at %s\n\n", author, date)
+			fmt.Fprintf(&b, "**%s** at %s\n\n", escapeMarkdownText(author), inlineCode(date))
 			b.WriteString(strings.TrimRight(comment.Content, "\n"))
 			b.WriteString("\n\n")
 		}
 	}
 	return b.String()
+}
+
+func escapeMarkdownText(value string) string {
+	if value == "" {
+		return value
+	}
+	var b strings.Builder
+	b.Grow(len(value))
+	for _, r := range value {
+		switch r {
+		case '\\', '`', '*', '_', '{', '}', '[', ']', '(', ')', '#', '+', '-', '.', '!', '|', '<', '>', '~':
+			b.WriteByte('\\')
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
+}
+
+func inlineCode(value string) string {
+	if value == "" {
+		return value
+	}
+	maxBackticks := 0
+	current := 0
+	for _, r := range value {
+		if r == '`' {
+			current++
+			if current > maxBackticks {
+				maxBackticks = current
+			}
+		} else {
+			current = 0
+		}
+	}
+	delim := strings.Repeat("`", maxBackticks+1)
+	pad := ""
+	if strings.HasPrefix(value, "`") || strings.HasSuffix(value, "`") {
+		pad = " "
+	}
+	return delim + pad + value + pad + delim
 }
 
 func authorDisplay(author map[string]any) string {
@@ -300,4 +339,3 @@ func authorDisplay(author map[string]any) string {
 	}
 	return "(unknown)"
 }
-
