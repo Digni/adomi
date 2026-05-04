@@ -79,9 +79,10 @@ func (r Runner) newRootCommand(stdin io.Reader, stdout, stderr io.Writer) *cobra
 	}
 	rootCmd.CompletionOptions.DisableDefaultCmd = true
 	rootCmd.SetIn(stdin)
+	// Cobra help and usage belong on stderr; command result data is written via explicit stdout writers.
 	rootCmd.SetOut(stderr)
 	rootCmd.SetErr(stderr)
-	rootCmd.AddCommand(r.newAgentCommand(stdout), r.newConfigCommand(stdout), r.newADOCommand(stdin, stdout, stderr))
+	rootCmd.AddCommand(r.newAgentCommand(stdin, stdout, stderr), r.newConfigCommand(stdout), r.newADOCommand(stdin, stdout, stderr))
 	return rootCmd
 }
 
