@@ -49,6 +49,26 @@ The system SHALL keep `adomi ado config init` as a hidden compatibility alias fo
 - **WHEN** the user requests help for `adomi ado`
 - **THEN** the help output does not list `config` as an Azure DevOps subcommand
 
+### Requirement: Agent skill command namespace
+
+The system SHALL expose agent-oriented skill creation through the top-level `adomi agent skill` command while preserving the existing `Run(args, stdin, stdout, stderr)` execution boundary.
+
+#### Scenario: Agent namespace appears in top-level help
+- **WHEN** the user runs `adomi` without a command
+- **THEN** the command exits non-zero and reports usage that includes the `agent` top-level command on stderr
+
+#### Scenario: Agent skill help describes default and Claude targets
+- **WHEN** the user requests help for `adomi agent skill`
+- **THEN** the help output describes that omitting a target writes to the default shared-agent root, describes the `--claude` target override, and describes the required source path argument
+
+#### Scenario: Existing Azure DevOps namespace remains available
+- **WHEN** the user runs `adomi ado` without an Azure DevOps subcommand
+- **THEN** the command exits non-zero and reports usage for the existing Azure DevOps subcommands
+
+#### Scenario: Existing config namespace remains available
+- **WHEN** the user runs `adomi config init` with valid arguments
+- **THEN** the command behavior remains the same as before the agent command was added
+
 ### Requirement: Azure DevOps commands remain under ado namespace
 
 The system SHALL preserve Azure DevOps-specific commands under `adomi ado`.
@@ -80,6 +100,14 @@ The system SHALL keep stdout reserved for successful command data and stderr res
 #### Scenario: Successful fetch stdout
 - **WHEN** `adomi ado fetch <work-item-id>` succeeds
 - **THEN** stdout contains only the exported path followed by a newline
+
+#### Scenario: Agent skill success stdout
+- **WHEN** the user successfully runs `adomi agent skill .`
+- **THEN** stdout contains only the created skill directory path and stderr does not contain success data
+
+#### Scenario: Agent skill validation error leaves stdout empty
+- **WHEN** the user runs `adomi agent skill --claude --unknown .`
+- **THEN** stdout is empty and the command exits non-zero
 
 #### Scenario: Secret prompt
 - **WHEN** `adomi ado login` prompts for a PAT
