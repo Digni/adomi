@@ -25,129 +25,75 @@ func (r Runner) newAgentCommand(stdout io.Writer) *cobra.Command {
 
 func (r Runner) newAgentSkillCommand(stdout io.Writer) *cobra.Command {
 	var claude bool
+	var global bool
+	var project bool
 	skillCmd := &cobra.Command{
-		Use:   "skill [--claude] <path>",
-		Short: "Create an agent skill from a local directory",
-		Long: "Create an agent skill from a local directory. By default, skills are installed under ~/.agents/skills. " +
-			"Use --claude to install under ~/.claude/skills instead.",
-		Args: cobra.ExactArgs(1),
+		Use:   "skill [--claude] [--global | --project]",
+		Short: "Create an agent skill for this repository",
+		Long: "Create an agent skill for this repository. By default, skills are installed globally under ~/.agents/skills. " +
+			"Use --project to install under this repository's .agents/skills directory. " +
+			"Use --claude to target Claude's .claude/skills directory instead.",
+		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return r.runAgentSkill(agentSkillArgs{sourcePath: args[0], claude: claude}, stdout)
+			if global && project {
+				return fmt.Errorf("cannot use --global with --project")
+			}
+			return r.runAgentSkill(agentSkillArgs{claude: claude, project: project}, stdout)
 		},
 	}
-	skillCmd.Flags().BoolVar(&claude, "claude", false, "install under ~/.claude/skills instead of the default ~/.agents/skills")
+	skillCmd.Flags().BoolVar(&claude, "claude", false, "install a Claude skill instead of a default shared-agent skill")
+	skillCmd.Flags().BoolVar(&global, "global", false, "install under the user-level skills directory (default)")
+	skillCmd.Flags().BoolVar(&project, "project", false, "install under this repository's project-level skills directory")
 	return skillCmd
 }
 
 type agentSkillArgs struct {
-	sourcePath string
-	claude     bool
-}
-
-type skillMetadata struct {
-	Name        string
-	Description string
+	claude  bool
+	project bool
 }
 
 func (r Runner) runAgentSkill(args agentSkillArgs, stdout io.Writer) error {
 	deps := r.dependencies()
-	homeDir, err := deps.UserHomeDir()
+	cwd, err := deps.Getwd()
 	if err != nil {
-		return fmt.Errorf("getting home directory: %w", err)
+		return fmt.Errorf("getting current directory: %w", err)
 	}
-
-	sourceDir, err := resolveSkillSourceDir(args.sourcePath)
-	if err != nil {
-		return err
-	}
-
-	content, name, err := skillContentForSource(sourceDir)
+	repoRoot, err := deps.FindRepoRoot(cwd)
 	if err != nil {
 		return err
 	}
+
+	name := kebabCase(filepath.Base(repoRoot))
 	if !isValidSkillName(name) {
 		return fmt.Errorf("skill name %q must be kebab-case", name)
 	}
 
-	skillsRoot := filepath.Join(homeDir, ".agents", "skills")
-	if args.claude {
-		skillsRoot = filepath.Join(homeDir, ".claude", "skills")
+	skillsRoot, err := agentSkillRoot(deps, repoRoot, args)
+	if err != nil {
+		return err
 	}
 	targetDir := filepath.Join(skillsRoot, name)
-	if err := writeNewSkill(targetDir, content); err != nil {
+	if err := writeNewSkill(targetDir, generateSkillContent(name)); err != nil {
 		return err
 	}
 	fmt.Fprintln(stdout, targetDir)
 	return nil
 }
 
-func resolveSkillSourceDir(sourcePath string) (string, error) {
-	if sourcePath == "" {
-		return "", fmt.Errorf("source path is required")
-	}
-	absPath, err := filepath.Abs(sourcePath)
-	if err != nil {
-		return "", fmt.Errorf("resolving source path %q: %w", sourcePath, err)
-	}
-	info, err := os.Stat(absPath)
-	if err != nil {
-		return "", fmt.Errorf("checking source path %s: %w", absPath, err)
-	}
-	if !info.IsDir() {
-		return "", fmt.Errorf("source path %s is not a directory", absPath)
-	}
-	return absPath, nil
-}
-
-func skillContentForSource(sourceDir string) (string, string, error) {
-	sourceSkillPath := filepath.Join(sourceDir, "SKILL.md")
-	if data, err := os.ReadFile(sourceSkillPath); err == nil {
-		content := string(data)
-		metadata, ok := parseSkillMetadata(content)
-		if ok && metadata.Name != "" {
-			if !isValidSkillName(metadata.Name) {
-				return "", "", fmt.Errorf("skill name %q must be kebab-case", metadata.Name)
-			}
-			return content, metadata.Name, nil
+func agentSkillRoot(deps Dependencies, repoRoot string, args agentSkillArgs) (string, error) {
+	baseDir := repoRoot
+	if !args.project {
+		homeDir, err := deps.UserHomeDir()
+		if err != nil {
+			return "", fmt.Errorf("getting home directory: %w", err)
 		}
-	} else if !os.IsNotExist(err) {
-		return "", "", fmt.Errorf("reading source skill %s: %w", sourceSkillPath, err)
+		baseDir = homeDir
 	}
 
-	name := kebabCase(filepath.Base(sourceDir))
-	if !isValidSkillName(name) {
-		return "", "", fmt.Errorf("skill name %q must be kebab-case", name)
+	if args.claude {
+		return filepath.Join(baseDir, ".claude", "skills"), nil
 	}
-	return generateSkillContent(name), name, nil
-}
-
-func parseSkillMetadata(content string) (skillMetadata, bool) {
-	content = strings.ReplaceAll(content, "\r\n", "\n")
-	if !strings.HasPrefix(content, "---\n") {
-		return skillMetadata{}, false
-	}
-	remaining := strings.TrimPrefix(content, "---\n")
-	end := strings.Index(remaining, "\n---")
-	if end < 0 {
-		return skillMetadata{}, false
-	}
-	frontMatter := remaining[:end]
-	var metadata skillMetadata
-	for _, line := range strings.Split(frontMatter, "\n") {
-		key, value, ok := strings.Cut(line, ":")
-		if !ok {
-			continue
-		}
-		value = strings.TrimSpace(value)
-		value = strings.Trim(value, "\"'")
-		switch strings.TrimSpace(key) {
-		case "name":
-			metadata.Name = value
-		case "description":
-			metadata.Description = value
-		}
-	}
-	return metadata, true
+	return filepath.Join(baseDir, ".agents", "skills"), nil
 }
 
 func kebabCase(value string) string {

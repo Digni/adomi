@@ -8,16 +8,16 @@ import (
 	"testing"
 )
 
-func TestAgentSkillCreatesDefaultSkillFromDirectory(t *testing.T) {
+func TestAgentSkillCreatesGlobalDefaultSkillForRepository(t *testing.T) {
 	homeDir := t.TempDir()
-	sourceDir := filepath.Join(t.TempDir(), "adomi")
-	if err := os.Mkdir(sourceDir, 0o700); err != nil {
+	repoRoot := filepath.Join(t.TempDir(), "adomi")
+	if err := os.Mkdir(repoRoot, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	runner := Runner{deps: Dependencies{UserHomeDir: func() (string, error) { return homeDir, nil }}}
+	runner := agentSkillRunner(t, homeDir, repoRoot)
 	var stdout, stderr bytes.Buffer
 
-	err := runner.Run([]string{"agent", "skill", sourceDir}, strings.NewReader(""), &stdout, &stderr)
+	err := runner.Run([]string{"agent", "skill"}, strings.NewReader(""), &stdout, &stderr)
 	if err != nil {
 		t.Fatalf("Run returned error: %v", err)
 	}
@@ -39,16 +39,35 @@ func TestAgentSkillCreatesDefaultSkillFromDirectory(t *testing.T) {
 	}
 }
 
-func TestAgentSkillCreatesClaudeSkillFromDirectory(t *testing.T) {
+func TestAgentSkillAcceptsExplicitGlobalScope(t *testing.T) {
 	homeDir := t.TempDir()
-	sourceDir := filepath.Join(t.TempDir(), "adomi")
-	if err := os.Mkdir(sourceDir, 0o700); err != nil {
+	repoRoot := filepath.Join(t.TempDir(), "adomi")
+	if err := os.Mkdir(repoRoot, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	runner := Runner{deps: Dependencies{UserHomeDir: func() (string, error) { return homeDir, nil }}}
+	runner := agentSkillRunner(t, homeDir, repoRoot)
 	var stdout bytes.Buffer
 
-	err := runner.Run([]string{"agent", "skill", "--claude", sourceDir}, strings.NewReader(""), &stdout, &bytes.Buffer{})
+	err := runner.Run([]string{"agent", "skill", "--global"}, strings.NewReader(""), &stdout, &bytes.Buffer{})
+	if err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+	targetDir := filepath.Join(homeDir, ".agents", "skills", "adomi")
+	if got := stdout.String(); got != targetDir+"\n" {
+		t.Fatalf("stdout = %q, want target path", got)
+	}
+}
+
+func TestAgentSkillCreatesGlobalClaudeSkillForRepository(t *testing.T) {
+	homeDir := t.TempDir()
+	repoRoot := filepath.Join(t.TempDir(), "adomi")
+	if err := os.Mkdir(repoRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	runner := agentSkillRunner(t, homeDir, repoRoot)
+	var stdout bytes.Buffer
+
+	err := runner.Run([]string{"agent", "skill", "--claude"}, strings.NewReader(""), &stdout, &bytes.Buffer{})
 	if err != nil {
 		t.Fatalf("Run returned error: %v", err)
 	}
@@ -61,34 +80,75 @@ func TestAgentSkillCreatesClaudeSkillFromDirectory(t *testing.T) {
 	}
 }
 
-func TestAgentSkillRejectsDefaultFlag(t *testing.T) {
+func TestAgentSkillCreatesProjectDefaultSkillForRepository(t *testing.T) {
 	homeDir := t.TempDir()
-	sourceDir := filepath.Join(t.TempDir(), "adomi")
-	if err := os.Mkdir(sourceDir, 0o700); err != nil {
+	repoRoot := filepath.Join(t.TempDir(), "adomi")
+	if err := os.Mkdir(repoRoot, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	runner := Runner{deps: Dependencies{UserHomeDir: func() (string, error) { return homeDir, nil }}}
+	runner := agentSkillRunner(t, homeDir, repoRoot)
 	var stdout bytes.Buffer
 
-	err := runner.Run([]string{"agent", "skill", "--default", sourceDir}, strings.NewReader(""), &stdout, &bytes.Buffer{})
+	err := runner.Run([]string{"agent", "skill", "--project"}, strings.NewReader(""), &stdout, &bytes.Buffer{})
+	if err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+	targetDir := filepath.Join(repoRoot, ".agents", "skills", "adomi")
+	if got := stdout.String(); got != targetDir+"\n" {
+		t.Fatalf("stdout = %q, want target path", got)
+	}
+	if _, err := os.Stat(filepath.Join(targetDir, "SKILL.md")); err != nil {
+		t.Fatalf("stat SKILL.md: %v", err)
+	}
+}
+
+func TestAgentSkillCreatesProjectClaudeSkillForRepository(t *testing.T) {
+	homeDir := t.TempDir()
+	repoRoot := filepath.Join(t.TempDir(), "adomi")
+	if err := os.Mkdir(repoRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	runner := agentSkillRunner(t, homeDir, repoRoot)
+	var stdout bytes.Buffer
+
+	err := runner.Run([]string{"agent", "skill", "--claude", "--project"}, strings.NewReader(""), &stdout, &bytes.Buffer{})
+	if err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+	targetDir := filepath.Join(repoRoot, ".claude", "skills", "adomi")
+	if got := stdout.String(); got != targetDir+"\n" {
+		t.Fatalf("stdout = %q, want target path", got)
+	}
+	if _, err := os.Stat(filepath.Join(targetDir, "SKILL.md")); err != nil {
+		t.Fatalf("stat SKILL.md: %v", err)
+	}
+}
+
+func TestAgentSkillRejectsGlobalAndProjectTogether(t *testing.T) {
+	homeDir := t.TempDir()
+	repoRoot := filepath.Join(t.TempDir(), "adomi")
+	if err := os.Mkdir(repoRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	runner := agentSkillRunner(t, homeDir, repoRoot)
+	var stdout bytes.Buffer
+
+	err := runner.Run([]string{"agent", "skill", "--global", "--project"}, strings.NewReader(""), &stdout, &bytes.Buffer{})
 	if err == nil {
-		t.Fatal("Run error = nil, want unsupported flag error")
+		t.Fatal("Run error = nil, want conflicting scope error")
 	}
 	if stdout.String() != "" {
 		t.Fatalf("stdout = %q, want empty", stdout.String())
 	}
-	if _, statErr := os.Stat(filepath.Join(homeDir, ".agents", "skills", "adomi")); !os.IsNotExist(statErr) {
-		t.Fatalf("target stat error = %v, want not exist", statErr)
-	}
 }
 
-func TestAgentSkillRequiresSourcePath(t *testing.T) {
-	runner := Runner{deps: Dependencies{UserHomeDir: func() (string, error) { return t.TempDir(), nil }}}
+func TestAgentSkillRejectsPositionalArgument(t *testing.T) {
+	runner := agentSkillRunner(t, t.TempDir(), t.TempDir())
 	var stdout bytes.Buffer
 
-	err := runner.Run([]string{"agent", "skill", "--claude"}, strings.NewReader(""), &stdout, &bytes.Buffer{})
+	err := runner.Run([]string{"agent", "skill", "."}, strings.NewReader(""), &stdout, &bytes.Buffer{})
 	if err == nil {
-		t.Fatal("Run error = nil, want missing source path error")
+		t.Fatal("Run error = nil, want positional argument error")
 	}
 	if stdout.String() != "" {
 		t.Fatalf("stdout = %q, want empty", stdout.String())
@@ -96,10 +156,10 @@ func TestAgentSkillRequiresSourcePath(t *testing.T) {
 }
 
 func TestAgentSkillRejectsUnknownFlag(t *testing.T) {
-	runner := Runner{deps: Dependencies{UserHomeDir: func() (string, error) { return t.TempDir(), nil }}}
+	runner := agentSkillRunner(t, t.TempDir(), t.TempDir())
 	var stdout bytes.Buffer
 
-	err := runner.Run([]string{"agent", "skill", "--unknown", "."}, strings.NewReader(""), &stdout, &bytes.Buffer{})
+	err := runner.Run([]string{"agent", "skill", "--unknown"}, strings.NewReader(""), &stdout, &bytes.Buffer{})
 	if err == nil {
 		t.Fatal("Run error = nil, want unknown flag error")
 	}
@@ -108,42 +168,10 @@ func TestAgentSkillRejectsUnknownFlag(t *testing.T) {
 	}
 }
 
-func TestAgentSkillRejectsMissingSourceDirectory(t *testing.T) {
-	homeDir := t.TempDir()
-	runner := Runner{deps: Dependencies{UserHomeDir: func() (string, error) { return homeDir, nil }}}
-	var stdout bytes.Buffer
-
-	err := runner.Run([]string{"agent", "skill", filepath.Join(t.TempDir(), "missing")}, strings.NewReader(""), &stdout, &bytes.Buffer{})
-	if err == nil {
-		t.Fatal("Run error = nil, want missing directory error")
-	}
-	if stdout.String() != "" {
-		t.Fatalf("stdout = %q, want empty", stdout.String())
-	}
-}
-
-func TestAgentSkillRejectsFileSource(t *testing.T) {
-	homeDir := t.TempDir()
-	sourceFile := filepath.Join(t.TempDir(), "README.md")
-	if err := os.WriteFile(sourceFile, []byte("readme"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	runner := Runner{deps: Dependencies{UserHomeDir: func() (string, error) { return homeDir, nil }}}
-	var stdout bytes.Buffer
-
-	err := runner.Run([]string{"agent", "skill", sourceFile}, strings.NewReader(""), &stdout, &bytes.Buffer{})
-	if err == nil {
-		t.Fatal("Run error = nil, want file source error")
-	}
-	if stdout.String() != "" {
-		t.Fatalf("stdout = %q, want empty", stdout.String())
-	}
-}
-
 func TestAgentSkillRejectsExistingTarget(t *testing.T) {
 	homeDir := t.TempDir()
-	sourceDir := filepath.Join(t.TempDir(), "adomi")
-	if err := os.Mkdir(sourceDir, 0o700); err != nil {
+	repoRoot := filepath.Join(t.TempDir(), "adomi")
+	if err := os.Mkdir(repoRoot, 0o700); err != nil {
 		t.Fatal(err)
 	}
 	targetDir := filepath.Join(homeDir, ".agents", "skills", "adomi")
@@ -154,10 +182,10 @@ func TestAgentSkillRejectsExistingTarget(t *testing.T) {
 	if err := os.WriteFile(existingPath, []byte("existing"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	runner := Runner{deps: Dependencies{UserHomeDir: func() (string, error) { return homeDir, nil }}}
+	runner := agentSkillRunner(t, homeDir, repoRoot)
 	var stdout bytes.Buffer
 
-	err := runner.Run([]string{"agent", "skill", sourceDir}, strings.NewReader(""), &stdout, &bytes.Buffer{})
+	err := runner.Run([]string{"agent", "skill"}, strings.NewReader(""), &stdout, &bytes.Buffer{})
 	if err == nil {
 		t.Fatal("Run error = nil, want existing target error")
 	}
@@ -169,16 +197,16 @@ func TestAgentSkillRejectsExistingTarget(t *testing.T) {
 	}
 }
 
-func TestAgentSkillDerivesKebabCaseNameFromDirectory(t *testing.T) {
+func TestAgentSkillDerivesKebabCaseNameFromRepository(t *testing.T) {
 	homeDir := t.TempDir()
-	sourceDir := filepath.Join(t.TempDir(), "My Agent Skill")
-	if err := os.Mkdir(sourceDir, 0o700); err != nil {
+	repoRoot := filepath.Join(t.TempDir(), "My Agent Skill")
+	if err := os.Mkdir(repoRoot, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	runner := Runner{deps: Dependencies{UserHomeDir: func() (string, error) { return homeDir, nil }}}
+	runner := agentSkillRunner(t, homeDir, repoRoot)
 	var stdout bytes.Buffer
 
-	err := runner.Run([]string{"agent", "skill", sourceDir}, strings.NewReader(""), &stdout, &bytes.Buffer{})
+	err := runner.Run([]string{"agent", "skill"}, strings.NewReader(""), &stdout, &bytes.Buffer{})
 	if err != nil {
 		t.Fatalf("Run returned error: %v", err)
 	}
@@ -188,33 +216,7 @@ func TestAgentSkillDerivesKebabCaseNameFromDirectory(t *testing.T) {
 	}
 }
 
-func TestAgentSkillUsesExistingSkillMetadataAndContent(t *testing.T) {
-	homeDir := t.TempDir()
-	sourceDir := filepath.Join(t.TempDir(), "source")
-	if err := os.Mkdir(sourceDir, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	sourceSkill := "---\nname: custom-skill\ndescription: Custom skill description\n---\n\n# Custom\n\nUse this skill.\n"
-	if err := os.WriteFile(filepath.Join(sourceDir, "SKILL.md"), []byte(sourceSkill), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	runner := Runner{deps: Dependencies{UserHomeDir: func() (string, error) { return homeDir, nil }}}
-	var stdout bytes.Buffer
-
-	err := runner.Run([]string{"agent", "skill", sourceDir}, strings.NewReader(""), &stdout, &bytes.Buffer{})
-	if err != nil {
-		t.Fatalf("Run returned error: %v", err)
-	}
-	targetDir := filepath.Join(homeDir, ".agents", "skills", "custom-skill")
-	if got := stdout.String(); got != targetDir+"\n" {
-		t.Fatalf("stdout = %q, want target path", got)
-	}
-	if got := readTestFile(t, filepath.Join(targetDir, "SKILL.md")); got != sourceSkill {
-		t.Fatalf("installed SKILL.md = %q, want source content", got)
-	}
-}
-
-func TestAgentSkillHelpDescribesDefaultAndClaudeTargets(t *testing.T) {
+func TestAgentSkillHelpDescribesScopesAndClaudeTarget(t *testing.T) {
 	runner := Runner{deps: Dependencies{}}
 	var stdout, stderr bytes.Buffer
 
@@ -225,11 +227,20 @@ func TestAgentSkillHelpDescribesDefaultAndClaudeTargets(t *testing.T) {
 	if stdout.String() != "" {
 		t.Fatalf("stdout = %q, want empty", stdout.String())
 	}
-	for _, want := range []string{"~/.agents/skills", "--claude", "<path>"} {
+	for _, want := range []string{"--global", "--project", "~/.agents/skills", "--claude", ".claude/skills"} {
 		if !strings.Contains(stderr.String(), want) {
 			t.Fatalf("stderr = %q, want %q", stderr.String(), want)
 		}
 	}
+}
+
+func agentSkillRunner(t *testing.T, homeDir, repoRoot string) Runner {
+	t.Helper()
+	return Runner{deps: Dependencies{
+		Getwd:        func() (string, error) { return filepath.Join(repoRoot, "subdir"), nil },
+		UserHomeDir:  func() (string, error) { return homeDir, nil },
+		FindRepoRoot: func(string) (string, error) { return repoRoot, nil },
+	}}
 }
 
 func readTestFile(t *testing.T, path string) string {

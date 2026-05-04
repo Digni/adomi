@@ -57,9 +57,9 @@ The system SHALL expose agent-oriented skill creation through the top-level `ado
 - **WHEN** the user runs `adomi` without a command
 - **THEN** the command exits non-zero and reports usage that includes the `agent` top-level command on stderr
 
-#### Scenario: Agent skill help describes default and Claude targets
+#### Scenario: Agent skill help describes scope and target flags
 - **WHEN** the user requests help for `adomi agent skill`
-- **THEN** the help output describes that omitting a target writes to the default shared-agent root, describes the `--claude` target override, and describes the required source path argument
+- **THEN** the help output describes the default global scope, the `--global` scope, the `--project` scope, and the `--claude` target override
 
 #### Scenario: Existing Azure DevOps namespace remains available
 - **WHEN** the user runs `adomi ado` without an Azure DevOps subcommand
@@ -102,7 +102,7 @@ The system SHALL keep stdout reserved for successful command data and stderr res
 - **THEN** stdout contains only the exported path followed by a newline
 
 #### Scenario: Agent skill success stdout
-- **WHEN** the user successfully runs `adomi agent skill .`
+- **WHEN** the user successfully runs `adomi agent skill`
 - **THEN** stdout contains only the created skill directory path and stderr does not contain success data
 
 #### Scenario: Agent skill validation error leaves stdout empty
