@@ -431,6 +431,10 @@ func requiredAdomiSkillContent() []string {
 		"adomi ado logout --profile <profile-name>",
 		"adomi ado logout --pat-ref <ref>",
 		".adomi/config.yaml",
+		"git worktree",
+		"main/root repository's `.adomi/config.yaml`",
+		"Always include `--profile <profile-name>` when there is no `.adomi/` folder present",
+		"adding `--profile <profile-name>` when no `.adomi/` folder is present",
 		"folder path structure",
 		"Never print, log, echo, commit, or otherwise expose PAT values",
 	}
