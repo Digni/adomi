@@ -146,25 +146,31 @@ For work item `12345`:
 
 ```text
 <repo-root>/.adomi/
-  azure-devops/
-    company-cloud/
-      MyProject/
-        work-items/
+  context/
+    work-items/
+      12345/
+        index.json
+        tree.json
+        items/
+          12345.json
+          12001.json
+          10000.json
+        html/
+          12345.html
+          12001.html
+          10000.html
+        attachments/
           12345/
-            index.json
-            tree.json
-            work-items/
-              12345.json
-              12001.json
-              10000.json
-            html/
-              12345.html
-              12001.html
-              10000.html
-            attachments/
-              12345/
-                screenshot.png
-                spec.pdf
+            screenshot.png
+            spec.pdf
+    pull-requests/
+      42/
+        index.json
+        pull-request.json
+        threads.json
+        comments.md
+        threads/
+          1.json
 ```
 
 Add this `.gitignore`:
@@ -401,7 +407,7 @@ Canonical format: JSON.
 Write:
 
 ```text
-work-items/<id>.json
+items/<id>.json
 tree.json
 index.json
 ```
@@ -435,7 +441,7 @@ Example:
       "id": 12345,
       "type": "Task",
       "title": "Implement checkout validation",
-      "path": "work-items/12345.json",
+      "path": "items/12345.json",
       "htmlPath": "html/12345.html",
       "attachmentsPath": "attachments/12345"
     }
@@ -450,7 +456,7 @@ Example:
 `adomi ado fetch` should print only the final folder path to stdout:
 
 ```text
-/path/to/repo/.adomi/azure-devops/company-cloud/MyProject/work-items/12345
+/path/to/repo/.adomi/context/work-items/12345
 ```
 
 Errors should go to stderr.

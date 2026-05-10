@@ -12,15 +12,7 @@ import (
 
 func TestOutputPathUsesRepoLocalAdomiDirectory(t *testing.T) {
 	got := OutputPath("/repo", "company-cloud", "MyProject", 12345)
-	want := filepath.Join("/repo", ".adomi", "azure-devops", "company-cloud", "MyProject", "work-items", "12345")
-	if got != want {
-		t.Fatalf("OutputPath = %q, want %q", got, want)
-	}
-}
-
-func TestOutputPathSanitizesProfileAndProjectSegments(t *testing.T) {
-	got := OutputPath("/repo", "../profile", `..\project/name`, 12345)
-	want := filepath.Join("/repo", ".adomi", "azure-devops", "_profile", "_project_name", "work-items", "12345")
+	want := filepath.Join("/repo", ".adomi", "context", "work-items", "12345")
 	if got != want {
 		t.Fatalf("OutputPath = %q, want %q", got, want)
 	}
@@ -61,13 +53,13 @@ func TestExportContextWritesIndexTreeItemsAndHTML(t *testing.T) {
 		t.Fatalf("ExportContext returned error: %v", err)
 	}
 
-	wantOutputDir := filepath.Join(repoRoot, ".adomi", "azure-devops", "company-cloud", "MyProject", "work-items", "12345")
+	wantOutputDir := filepath.Join(repoRoot, ".adomi", "context", "work-items", "12345")
 	if outputDir != wantOutputDir {
 		t.Fatalf("output dir = %q, want %q", outputDir, wantOutputDir)
 	}
 	assertExists(t, filepath.Join(outputDir, "index.json"))
 	assertExists(t, filepath.Join(outputDir, "tree.json"))
-	assertExists(t, filepath.Join(outputDir, "work-items", "12345.json"))
+	assertExists(t, filepath.Join(outputDir, "items", "12345.json"))
 	assertExists(t, filepath.Join(outputDir, "html", "12345.html"))
 
 	var index Index
@@ -84,8 +76,8 @@ func TestExportContextWritesIndexTreeItemsAndHTML(t *testing.T) {
 	if index.CreatedAt != "2026-04-26T12:00:00Z" {
 		t.Fatalf("createdAt = %q, want RFC3339 UTC", index.CreatedAt)
 	}
-	if got := index.WorkItems[0].Path; got != "work-items/12345.json" {
-		t.Fatalf("item path = %q, want relative work item path", got)
+	if got := index.WorkItems[0].Path; got != "items/12345.json" {
+		t.Fatalf("item path = %q, want relative item path", got)
 	}
 	if got := index.WorkItems[0].HTMLPath; got != "html/12345.html" {
 		t.Fatalf("html path = %q, want relative HTML path", got)
@@ -185,7 +177,7 @@ func TestExportContextAllowsNilDownloader(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ExportContext returned error: %v", err)
 	}
-	assertExists(t, filepath.Join(outputDir, "work-items", "12345.json"))
+	assertExists(t, filepath.Join(outputDir, "items", "12345.json"))
 	if _, err := os.Stat(filepath.Join(outputDir, "attachments")); !os.IsNotExist(err) {
 		t.Fatalf("attachments stat error = %v, want not exist", err)
 	}

@@ -225,9 +225,9 @@ func TestFetchPullRequestBundleWrapsThreadsError(t *testing.T) {
 	}
 }
 
-func TestPullRequestOutputPathSanitizesProfileAndProject(t *testing.T) {
-	got := PullRequestOutputPath("/repo", "../profile", `..\project/name`, 42)
-	want := filepath.Join("/repo", ".adomi", "azure-devops", "_profile", "_project_name", "pull-requests", "42")
+func TestPullRequestOutputPathUsesRepoLocalAdomiDirectory(t *testing.T) {
+	got := PullRequestOutputPath("/repo", "company-cloud", "MyProject", 42)
+	want := filepath.Join("/repo", ".adomi", "context", "pull-requests", "42")
 	if got != want {
 		t.Fatalf("PullRequestOutputPath = %q, want %q", got, want)
 	}
@@ -275,7 +275,7 @@ func TestExportPullRequestWritesCanonicalLayout(t *testing.T) {
 		t.Fatalf("ExportPullRequest returned error: %v", err)
 	}
 
-	wantOutputDir := filepath.Join(repoRoot, ".adomi", "azure-devops", "company-cloud", "MyProject", "pull-requests", "42")
+	wantOutputDir := filepath.Join(repoRoot, ".adomi", "context", "pull-requests", "42")
 	if outputDir != wantOutputDir {
 		t.Fatalf("output dir = %q, want %q", outputDir, wantOutputDir)
 	}

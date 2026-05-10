@@ -8,7 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
-	"strings"
 	"time"
 )
 
@@ -39,15 +38,7 @@ type IndexItem struct {
 }
 
 func OutputPath(repoRoot, profile, project string, rootID int) string {
-	return filepath.Join(
-		repoRoot,
-		".adomi",
-		"azure-devops",
-		sanitizePathSegment(profile),
-		sanitizePathSegment(project),
-		"work-items",
-		strconv.Itoa(rootID),
-	)
+	return filepath.Join(repoRoot, ".adomi", "context", "work-items", strconv.Itoa(rootID))
 }
 
 func ExportContext(ctx context.Context, downloader AttachmentDownloader, opts ExportOptions, tree *WorkItemTree) (string, error) {
@@ -62,7 +53,7 @@ func ExportContext(ctx context.Context, downloader AttachmentDownloader, opts Ex
 	if err := os.RemoveAll(outputDir); err != nil {
 		return "", fmt.Errorf("removing previous export directory: %w", err)
 	}
-	if err := os.MkdirAll(filepath.Join(outputDir, "work-items"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(outputDir, "items"), 0o755); err != nil {
 		return "", fmt.Errorf("creating work item export directory: %w", err)
 	}
 	if err := os.MkdirAll(filepath.Join(outputDir, "html"), 0o755); err != nil {
@@ -78,7 +69,7 @@ func ExportContext(ctx context.Context, downloader AttachmentDownloader, opts Ex
 	}
 
 	for _, item := range tree.WorkItems {
-		itemPath := filepath.Join(outputDir, "work-items", strconv.Itoa(item.ID)+".json")
+		itemPath := filepath.Join(outputDir, "items", strconv.Itoa(item.ID)+".json")
 		if err := writePrettyJSON(itemPath, item); err != nil {
 			return "", err
 		}
@@ -106,7 +97,7 @@ func newIndex(opts ExportOptions, tree *WorkItemTree) Index {
 			ID:              item.ID,
 			Type:            item.Type(),
 			Title:           item.Title(),
-			Path:            filepath.ToSlash(filepath.Join("work-items", id+".json")),
+			Path:            filepath.ToSlash(filepath.Join("items", id+".json")),
 			HTMLPath:        filepath.ToSlash(filepath.Join("html", id+".html")),
 			AttachmentsPath: filepath.ToSlash(filepath.Join("attachments", id)),
 		})
@@ -143,15 +134,4 @@ func renderHTML(item WorkItem) string {
 		html.EscapeString(item.Type()),
 		html.EscapeString(item.Description()),
 	)
-}
-
-func sanitizePathSegment(segment string) string {
-	segment = strings.TrimSpace(segment)
-	segment = strings.ReplaceAll(segment, "/", "_")
-	segment = strings.ReplaceAll(segment, "\\", "_")
-	segment = strings.Trim(segment, ". ")
-	if segment == "" {
-		return "_"
-	}
-	return segment
 }

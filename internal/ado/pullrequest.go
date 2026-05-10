@@ -136,15 +136,7 @@ type PullRequestThreadInfo struct {
 }
 
 func PullRequestOutputPath(repoRoot, profile, project string, pullRequestID int) string {
-	return filepath.Join(
-		repoRoot,
-		".adomi",
-		"azure-devops",
-		sanitizePathSegment(profile),
-		sanitizePathSegment(project),
-		"pull-requests",
-		strconv.Itoa(pullRequestID),
-	)
+	return filepath.Join(repoRoot, ".adomi", "context", "pull-requests", strconv.Itoa(pullRequestID))
 }
 
 func ExportPullRequest(opts PullRequestExportOptions, bundle *PullRequestBundle) (string, error) {

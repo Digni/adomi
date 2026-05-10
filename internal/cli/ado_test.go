@@ -332,7 +332,7 @@ func TestADOFetchPrintsOnlyExportedPath(t *testing.T) {
 			if gotTree != tree {
 				t.Fatal("ExportContext received unexpected tree")
 			}
-			return "/repo/.adomi/azure-devops/company-cloud/MyProject/work-items/12345", nil
+			return "/repo/.adomi/context/work-items/12345", nil
 		},
 		Now: func() time.Time { return createdAt },
 	}}
@@ -342,7 +342,7 @@ func TestADOFetchPrintsOnlyExportedPath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Run returned error: %v", err)
 	}
-	want := "/repo/.adomi/azure-devops/company-cloud/MyProject/work-items/12345\n"
+	want := "/repo/.adomi/context/work-items/12345\n"
 	if stdout.String() != want {
 		t.Fatalf("stdout = %q, want %q", stdout.String(), want)
 	}
@@ -452,7 +452,7 @@ func TestADOFetchGlobalUsesGlobalConfigScope(t *testing.T) {
 			if opts.RepoRoot != "/repo" {
 				t.Fatalf("repo root = %q, want /repo", opts.RepoRoot)
 			}
-			return "/repo/.adomi/azure-devops/home/MyProject/work-items/12345", nil
+			return "/repo/.adomi/context/work-items/12345", nil
 		},
 	}}
 	var stdout bytes.Buffer
@@ -843,7 +843,7 @@ func TestADOPullRequestPrintsOnlyExportedPath(t *testing.T) {
 			if gotBundle != bundle {
 				t.Fatal("ExportPullRequest received unexpected bundle")
 			}
-			return "/repo/.adomi/azure-devops/company-cloud/MyProject/pull-requests/42", nil
+			return "/repo/.adomi/context/pull-requests/42", nil
 		},
 		Now: func() time.Time { return createdAt },
 	}}
@@ -853,7 +853,7 @@ func TestADOPullRequestPrintsOnlyExportedPath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Run returned error: %v", err)
 	}
-	want := "/repo/.adomi/azure-devops/company-cloud/MyProject/pull-requests/42\n"
+	want := "/repo/.adomi/context/pull-requests/42\n"
 	if stdout.String() != want {
 		t.Fatalf("stdout = %q, want %q", stdout.String(), want)
 	}
@@ -912,7 +912,7 @@ func TestADOPullRequestGlobalUsesGlobalConfigScope(t *testing.T) {
 			return bundle, nil
 		},
 		ExportPullRequest: func(opts ado.PullRequestExportOptions, gotBundle *ado.PullRequestBundle) (string, error) {
-			return "/repo/.adomi/azure-devops/home/MyProject/pull-requests/42", nil
+			return "/repo/.adomi/context/pull-requests/42", nil
 		},
 	}}
 
@@ -1003,7 +1003,7 @@ azureDevOps:
 		t.Fatalf("Run returned error: %v", err)
 	}
 	outputDir := strings.TrimSpace(stdout.String())
-	wantOutputDir := filepath.Join(repoRoot, ".adomi", "azure-devops", "company-cloud", "MyProject", "pull-requests", "42")
+	wantOutputDir := filepath.Join(repoRoot, ".adomi", "context", "pull-requests", "42")
 	if outputDir != wantOutputDir {
 		t.Fatalf("stdout path = %q, want %q", outputDir, wantOutputDir)
 	}
@@ -1088,7 +1088,7 @@ azureDevOps:
 		t.Fatalf("Run returned error: %v", err)
 	}
 	outputDir := strings.TrimSpace(stdout.String())
-	wantOutputDir := filepath.Join(repoRoot, ".adomi", "azure-devops", "company-cloud", "MyProject", "work-items", "12345")
+	wantOutputDir := filepath.Join(repoRoot, ".adomi", "context", "work-items", "12345")
 	if outputDir != wantOutputDir {
 		t.Fatalf("stdout path = %q, want %q", outputDir, wantOutputDir)
 	}
@@ -1100,8 +1100,8 @@ azureDevOps:
 	}
 	assertLocalFile(t, filepath.Join(outputDir, "index.json"))
 	assertLocalFile(t, filepath.Join(outputDir, "tree.json"))
-	assertLocalFile(t, filepath.Join(outputDir, "work-items", "12345.json"))
-	assertLocalFile(t, filepath.Join(outputDir, "work-items", "12346.json"))
+	assertLocalFile(t, filepath.Join(outputDir, "items", "12345.json"))
+	assertLocalFile(t, filepath.Join(outputDir, "items", "12346.json"))
 	assertLocalFile(t, filepath.Join(outputDir, "html", "12345.html"))
 	assertLocalFile(t, filepath.Join(outputDir, "html", "12346.html"))
 	assertLocalFile(t, filepath.Join(outputDir, "attachments", "12345", "note.txt"))

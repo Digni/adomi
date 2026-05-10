@@ -145,7 +145,7 @@
 ## Task 8: Exporter
 
 - [ ] Write `internal/ado/export_test.go` for:
-  - output path `<repo-root>/.adomi/azure-devops/<profile>/<project>/work-items/<root-id>`.
+  - output path `<repo-root>/.adomi/context/work-items/<root-id>`.
   - `index.json`, `tree.json`, per-item JSON, and per-item HTML are written.
   - `index.json` contains `source`, `profile`, `project`, `rootWorkItemId`, `epicWorkItemId`, `createdAt`, and relative paths.
   - HTML escapes title/type and includes the raw Azure DevOps description inside the `<div>` as required by the handover's minimal HTML contract.
