@@ -182,6 +182,13 @@ type InitTemplateValues struct {
 	Proxy        string
 }
 
+type AzureDevOpsRemoteInfo struct {
+	Organization string
+	Project      string
+	Repository   string
+	BaseURL      string
+}
+
 func RenderInitTemplate(values InitTemplateValues) string {
 	values = defaultInitTemplateValues(values)
 	values = sanitizeInitTemplateValues(values)
@@ -257,34 +264,42 @@ func InitTemplateValuesFromRemotes(remotes []string) (InitTemplateValues, bool) 
 }
 
 func InitTemplateValuesFromRemote(remote string) (InitTemplateValues, bool) {
-	remote = strings.TrimSpace(remote)
-	if remote == "" {
+	info, ok := AzureDevOpsRemoteInfoFromRemote(remote)
+	if !ok {
 		return InitTemplateValues{}, false
 	}
+	return initValues(info.Organization, info.Project), true
+}
+
+func AzureDevOpsRemoteInfoFromRemote(remote string) (AzureDevOpsRemoteInfo, bool) {
+	remote = strings.TrimSpace(remote)
+	if remote == "" {
+		return AzureDevOpsRemoteInfo{}, false
+	}
 	if strings.HasPrefix(remote, "git@ssh.dev.azure.com:v3/") {
-		parts := strings.Split(strings.TrimPrefix(remote, "git@ssh.dev.azure.com:v3/"), "/")
-		if len(parts) >= 2 {
-			return initValues(parts[0], parts[1]), true
+		parts := splitAndUnescape(strings.Split(strings.TrimPrefix(remote, "git@ssh.dev.azure.com:v3/"), "/"))
+		if len(parts) >= 3 {
+			return remoteInfo(parts[0], parts[1], parts[2]), true
 		}
-		return InitTemplateValues{}, false
+		return AzureDevOpsRemoteInfo{}, false
 	}
 
 	parsed, err := url.Parse(remote)
 	if err != nil || parsed.Host == "" {
-		return InitTemplateValues{}, false
+		return AzureDevOpsRemoteInfo{}, false
 	}
 	host := strings.ToLower(parsed.Host)
-	segments := nonEmptyPathSegments(parsed.Path)
+	segments := splitAndUnescape(nonEmptyPathSegments(parsed.Path))
 	switch {
-	case host == "ssh.dev.azure.com" && len(segments) >= 3 && segments[0] == "v3":
-		return initValues(segments[1], segments[2]), true
-	case host == "dev.azure.com" && len(segments) >= 2:
-		return initValues(segments[0], segments[1]), true
-	case strings.HasSuffix(host, ".visualstudio.com") && len(segments) >= 1:
+	case host == "ssh.dev.azure.com" && len(segments) >= 4 && segments[0] == "v3":
+		return remoteInfo(segments[1], segments[2], segments[3]), true
+	case host == "dev.azure.com" && len(segments) >= 4 && segments[2] == "_git":
+		return remoteInfo(segments[0], segments[1], segments[3]), true
+	case strings.HasSuffix(host, ".visualstudio.com") && len(segments) >= 3 && segments[1] == "_git":
 		org := strings.TrimSuffix(host, ".visualstudio.com")
-		return initValues(org, segments[0]), true
+		return remoteInfo(org, segments[0], segments[2]), true
 	default:
-		return InitTemplateValues{}, false
+		return AzureDevOpsRemoteInfo{}, false
 	}
 }
 
@@ -297,6 +312,28 @@ func initValues(org, project string) InitTemplateValues {
 		Project:      project,
 		APIVersion:   defaultAPIVersion,
 	}
+}
+
+func remoteInfo(org, project, repository string) AzureDevOpsRemoteInfo {
+	org = strings.ToLower(org)
+	return AzureDevOpsRemoteInfo{
+		Organization: org,
+		Project:      project,
+		Repository:   repository,
+		BaseURL:      "https://dev.azure.com/" + org,
+	}
+}
+
+func splitAndUnescape(parts []string) []string {
+	decoded := make([]string, 0, len(parts))
+	for _, part := range parts {
+		value, err := url.PathUnescape(part)
+		if err != nil {
+			value = part
+		}
+		decoded = append(decoded, value)
+	}
+	return decoded
 }
 
 func nonEmptyPathSegments(path string) []string {

@@ -1,6 +1,7 @@
 package ado
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -157,6 +158,169 @@ func (c *Client) FetchPullRequestThreads(ctx context.Context, repositoryID strin
 	return threads.Value, nil
 }
 
+func (c *Client) ListPullRequests(ctx context.Context, opts PullRequestListOptions) ([]PullRequest, error) {
+	if strings.TrimSpace(opts.RepositoryID) == "" {
+		return nil, fmt.Errorf("pull request list request requires repository ID")
+	}
+	status := strings.TrimSpace(opts.Status)
+	if status == "" {
+		status = "active"
+	}
+	requestURL := c.pullRequestsURL(opts.RepositoryID)
+	parsed, err := url.Parse(requestURL)
+	if err != nil {
+		return nil, fmt.Errorf("parsing pull request list URL: %w", err)
+	}
+	query := parsed.Query()
+	query.Set("searchCriteria.status", status)
+	if opts.SourceRefName != "" {
+		query.Set("searchCriteria.sourceRefName", opts.SourceRefName)
+	}
+	if opts.TargetRefName != "" {
+		query.Set("searchCriteria.targetRefName", opts.TargetRefName)
+	}
+	parsed.RawQuery = query.Encode()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, parsed.String(), nil)
+	if err != nil {
+		return nil, fmt.Errorf("creating pull request list request: %w", err)
+	}
+	c.authorize(req)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("listing Azure DevOps pull requests: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		return nil, responseError("listing Azure DevOps pull requests", 0, resp)
+	}
+
+	var prs PullRequestsResponse
+	if err := json.NewDecoder(resp.Body).Decode(&prs); err != nil {
+		return nil, fmt.Errorf("decoding Azure DevOps pull requests: %w", err)
+	}
+	if prs.Value == nil {
+		return []PullRequest{}, nil
+	}
+	for i, pr := range prs.Value {
+		if pr.ID <= 0 {
+			return nil, fmt.Errorf("Azure DevOps pull request list response item %d missing pull request ID", i)
+		}
+	}
+	return prs.Value, nil
+}
+
+func (c *Client) CreatePullRequest(ctx context.Context, opts PullRequestCreateOptions) (*PullRequest, error) {
+	if strings.TrimSpace(opts.RepositoryID) == "" {
+		return nil, fmt.Errorf("pull request create request requires repository ID")
+	}
+	body := map[string]any{
+		"sourceRefName": opts.SourceRefName,
+		"targetRefName": opts.TargetRefName,
+		"title":         opts.Title,
+	}
+	if opts.Description != "" {
+		body["description"] = opts.Description
+	}
+	var pr PullRequest
+	if err := c.doJSON(ctx, http.MethodPost, c.pullRequestsURL(opts.RepositoryID), body, &pr, "creating Azure DevOps pull request", "decoding Azure DevOps pull request create response"); err != nil {
+		return nil, err
+	}
+	if pr.ID <= 0 {
+		return nil, fmt.Errorf("Azure DevOps pull request create response missing pull request ID")
+	}
+	return &pr, nil
+}
+
+func (c *Client) UpdatePullRequest(ctx context.Context, opts PullRequestUpdateOptions) (*PullRequest, error) {
+	if strings.TrimSpace(opts.RepositoryID) == "" {
+		return nil, fmt.Errorf("pull request update request requires repository ID")
+	}
+	body := map[string]any{}
+	if opts.Title != nil {
+		body["title"] = *opts.Title
+	}
+	if opts.Description != nil {
+		body["description"] = *opts.Description
+	}
+	var pr PullRequest
+	if err := c.doJSON(ctx, http.MethodPatch, c.pullRequestRepoURL(opts.RepositoryID, opts.PullRequestID), body, &pr, "updating Azure DevOps pull request", "decoding Azure DevOps pull request update response"); err != nil {
+		return nil, err
+	}
+	if pr.ID <= 0 {
+		return nil, fmt.Errorf("Azure DevOps pull request update response missing pull request ID")
+	}
+	if pr.ID != opts.PullRequestID {
+		return nil, fmt.Errorf("Azure DevOps pull request update response ID %d does not match requested ID %d", pr.ID, opts.PullRequestID)
+	}
+	return &pr, nil
+}
+
+func (c *Client) CreatePullRequestThreadComment(ctx context.Context, opts PullRequestThreadCommentCreateOptions) (*PullRequestComment, error) {
+	if strings.TrimSpace(opts.RepositoryID) == "" {
+		return nil, fmt.Errorf("pull request thread comment request requires repository ID")
+	}
+	body := map[string]any{
+		"content":     opts.Content,
+		"commentType": "text",
+	}
+	var comment PullRequestComment
+	if err := c.doJSON(ctx, http.MethodPost, c.pullRequestThreadCommentsURL(opts.RepositoryID, opts.PullRequestID, opts.ThreadID), body, &comment, "creating Azure DevOps pull request thread comment", "decoding Azure DevOps pull request thread comment"); err != nil {
+		return nil, err
+	}
+	if comment.ID <= 0 {
+		return nil, fmt.Errorf("Azure DevOps pull request thread comment response missing comment ID")
+	}
+	return &comment, nil
+}
+
+func (c *Client) UpdatePullRequestThread(ctx context.Context, opts PullRequestThreadUpdateOptions) (*PullRequestThread, error) {
+	if strings.TrimSpace(opts.RepositoryID) == "" {
+		return nil, fmt.Errorf("pull request thread update request requires repository ID")
+	}
+	body := map[string]any{"status": opts.Status}
+	var thread PullRequestThread
+	if err := c.doJSON(ctx, http.MethodPatch, c.pullRequestThreadURL(opts.RepositoryID, opts.PullRequestID, opts.ThreadID), body, &thread, "updating Azure DevOps pull request thread", "decoding Azure DevOps pull request thread update"); err != nil {
+		return nil, err
+	}
+	if thread.ID <= 0 {
+		return nil, fmt.Errorf("Azure DevOps pull request thread update response missing thread ID")
+	}
+	if thread.ID != opts.ThreadID {
+		return nil, fmt.Errorf("Azure DevOps pull request thread update response ID %d does not match requested ID %d", thread.ID, opts.ThreadID)
+	}
+	return &thread, nil
+}
+
+func (c *Client) doJSON(ctx context.Context, method, requestURL string, body any, target any, action, decodeAction string) error {
+	data, err := json.Marshal(body)
+	if err != nil {
+		return fmt.Errorf("encoding request body: %w", err)
+	}
+	req, err := http.NewRequestWithContext(ctx, method, requestURL, bytes.NewReader(data))
+	if err != nil {
+		return fmt.Errorf("creating request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	c.authorize(req)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("%s: %w", action, err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		return responseError(action, 0, resp)
+	}
+	if err := json.NewDecoder(resp.Body).Decode(target); err != nil {
+		return fmt.Errorf("%s: %w", decodeAction, err)
+	}
+	return nil
+}
+
 func (c *Client) Download(ctx context.Context, rawURL string) ([]byte, error) {
 	if err := c.validateDownloadURL(rawURL); err != nil {
 		return nil, err
@@ -220,8 +384,52 @@ func (c *Client) pullRequestURL(id int) string {
 }
 
 func (c *Client) pullRequestThreadsURL(repositoryID string, pullRequestID int) string {
+	return c.pullRequestThreadCollectionURL(repositoryID, pullRequestID)
+}
+
+func (c *Client) pullRequestsURL(repositoryID string) string {
+	u := *c.baseURL
+	segments := []string{strings.TrimRight(u.Path, "/"), c.config.Project, "_apis", "git", "repositories", repositoryID, "pullrequests"}
+	u.Path = path.Join(segments...)
+	query := u.Query()
+	query.Set("api-version", c.config.APIVersion)
+	u.RawQuery = query.Encode()
+	return u.String()
+}
+
+func (c *Client) pullRequestRepoURL(repositoryID string, pullRequestID int) string {
+	u := *c.baseURL
+	segments := []string{strings.TrimRight(u.Path, "/"), c.config.Project, "_apis", "git", "repositories", repositoryID, "pullrequests", strconv.Itoa(pullRequestID)}
+	u.Path = path.Join(segments...)
+	query := u.Query()
+	query.Set("api-version", c.config.APIVersion)
+	u.RawQuery = query.Encode()
+	return u.String()
+}
+
+func (c *Client) pullRequestThreadCollectionURL(repositoryID string, pullRequestID int) string {
 	u := *c.baseURL
 	segments := []string{strings.TrimRight(u.Path, "/"), c.config.Project, "_apis", "git", "repositories", repositoryID, "pullrequests", strconv.Itoa(pullRequestID), "threads"}
+	u.Path = path.Join(segments...)
+	query := u.Query()
+	query.Set("api-version", c.config.APIVersion)
+	u.RawQuery = query.Encode()
+	return u.String()
+}
+
+func (c *Client) pullRequestThreadURL(repositoryID string, pullRequestID int, threadID int) string {
+	u := *c.baseURL
+	segments := []string{strings.TrimRight(u.Path, "/"), c.config.Project, "_apis", "git", "repositories", repositoryID, "pullrequests", strconv.Itoa(pullRequestID), "threads", strconv.Itoa(threadID)}
+	u.Path = path.Join(segments...)
+	query := u.Query()
+	query.Set("api-version", c.config.APIVersion)
+	u.RawQuery = query.Encode()
+	return u.String()
+}
+
+func (c *Client) pullRequestThreadCommentsURL(repositoryID string, pullRequestID int, threadID int) string {
+	u := *c.baseURL
+	segments := []string{strings.TrimRight(u.Path, "/"), c.config.Project, "_apis", "git", "repositories", repositoryID, "pullrequests", strconv.Itoa(pullRequestID), "threads", strconv.Itoa(threadID), "comments"}
 	u.Path = path.Join(segments...)
 	query := u.Query()
 	query.Set("api-version", c.config.APIVersion)

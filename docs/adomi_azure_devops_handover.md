@@ -69,24 +69,35 @@ The user home directory may only be used as a fallback config location.
 
 ---
 
-## MVP Commands
+## Commands
 
-Implement these first:
+Work item context and credentials:
 
 ```bash
 adomi ado fetch <work-item-id>
 adomi ado fetch <work-item-id> --profile <profile-name>
 adomi ado login --profile <profile-name>
 adomi ado logout --profile <profile-name>
-```
-
-Optional but useful:
-
-```bash
 adomi ado profiles list
 adomi config init
 adomi config init --global
 ```
+
+Pull request context and conservative PR maintenance:
+
+```bash
+adomi ado pr fetch <pull-request-id>
+adomi ado pr <pull-request-id> # compatibility alias for fetch
+adomi ado pr ensure --title <title>
+adomi ado pr ensure --description-file <path>
+adomi ado pr reply <pull-request-id> --thread <thread-id> --message-file <path>
+adomi ado pr resolve <pull-request-id> --thread <thread-id>
+adomi ado pr reopen <pull-request-id> --thread <thread-id>
+```
+
+`adomi ado pr ensure` runs inside the current Git repository. It infers the Azure DevOps repository from matching git remotes, the source branch from the current branch, and the target branch from the selected remote default branch when possible. Use `--repository <name-or-id>`, `--source <branch>`, or `--target <branch>` when inference is ambiguous or unavailable.
+
+PR maintenance is intentionally narrow: it can create/update title or description for the active branch PR, reply to explicit thread IDs, and mark explicit threads `fixed` or `active`. It does not approve, reject, merge/complete, abandon, set auto-complete, bypass policies, or manage reviewers.
 
 `adomi ado config init` is retained only as a hidden compatibility alias; prefer `adomi config init` in user-facing docs and scripts.
 
@@ -295,6 +306,8 @@ Azure DevOps PAT uses Basic Auth with an empty username:
 req.SetBasicAuth("", pat)
 ```
 
+Read-only context fetch commands require credentials that can read the requested work items or pull requests. PR maintenance commands require credentials with appropriate PR/thread write permissions, such as code write permission for creating/updating PRs and thread/comment write permission for review thread maintenance. Never print, log, echo, commit, or otherwise expose PAT values.
+
 ---
 
 ## HTTP Client
@@ -453,13 +466,13 @@ Example:
 
 ## CLI Output Contract
 
-`adomi ado fetch` should print only the final folder path to stdout:
+`adomi ado fetch` and `adomi ado pr fetch` should print only the final context folder path to stdout:
 
 ```text
 /path/to/repo/.adomi/context/work-items/12345
 ```
 
-Errors should go to stderr.
+Successful PR maintenance commands keep stdout data-only: `ensure` prints the PR ID, `reply` prints the created comment ID, `resolve`/`reopen` print the thread ID, and `--json` prints one compact JSON object. Errors, prompts, diagnostics, validation failures, and Azure DevOps/network failures should go to stderr and leave stdout empty.
 
 This should work:
 

@@ -266,6 +266,77 @@ func TestInitTemplateValuesFromMixedCaseVisualStudioRemote(t *testing.T) {
 	}
 }
 
+func TestAzureDevOpsRemoteInfoFromRemote(t *testing.T) {
+	tests := []struct {
+		name        string
+		remote      string
+		wantOrg     string
+		wantProject string
+		wantRepo    string
+		wantBase    string
+	}{
+		{
+			name:        "https dev.azure.com",
+			remote:      "https://dev.azure.com/my-org/My%20Project/_git/adomi",
+			wantOrg:     "my-org",
+			wantProject: "My Project",
+			wantRepo:    "adomi",
+			wantBase:    "https://dev.azure.com/my-org",
+		},
+		{
+			name:        "https dev.azure.com with user info",
+			remote:      "https://my-org@dev.azure.com/my-org/MyProject/_git/adomi",
+			wantOrg:     "my-org",
+			wantProject: "MyProject",
+			wantRepo:    "adomi",
+			wantBase:    "https://dev.azure.com/my-org",
+		},
+		{
+			name:        "scp ssh",
+			remote:      "git@ssh.dev.azure.com:v3/my-org/MyProject/adomi",
+			wantOrg:     "my-org",
+			wantProject: "MyProject",
+			wantRepo:    "adomi",
+			wantBase:    "https://dev.azure.com/my-org",
+		},
+		{
+			name:        "ssh url",
+			remote:      "ssh://git@ssh.dev.azure.com/v3/my-org/MyProject/adomi",
+			wantOrg:     "my-org",
+			wantProject: "MyProject",
+			wantRepo:    "adomi",
+			wantBase:    "https://dev.azure.com/my-org",
+		},
+		{
+			name:        "visualstudio",
+			remote:      "https://My-Org.VisualStudio.com/MyProject/_git/adomi",
+			wantOrg:     "my-org",
+			wantProject: "MyProject",
+			wantRepo:    "adomi",
+			wantBase:    "https://dev.azure.com/my-org",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			info, ok := AzureDevOpsRemoteInfoFromRemote(tt.remote)
+			if !ok {
+				t.Fatal("AzureDevOpsRemoteInfoFromRemote ok = false, want true")
+			}
+			if info.Organization != tt.wantOrg || info.Project != tt.wantProject || info.Repository != tt.wantRepo || info.BaseURL != tt.wantBase {
+				t.Fatalf("info = %+v, want org=%q project=%q repo=%q base=%q", info, tt.wantOrg, tt.wantProject, tt.wantRepo, tt.wantBase)
+			}
+		})
+	}
+}
+
+func TestAzureDevOpsRemoteInfoFromUnsupportedRemote(t *testing.T) {
+	_, ok := AzureDevOpsRemoteInfoFromRemote("git@github.com:Digni/adomi.git")
+	if ok {
+		t.Fatal("AzureDevOpsRemoteInfoFromRemote ok = true, want false")
+	}
+}
+
 func TestInitTemplateValuesFromNonAzureDevOpsRemote(t *testing.T) {
 	_, ok := InitTemplateValuesFromRemote("git@github.com:Digni/adomi.git")
 	if ok {

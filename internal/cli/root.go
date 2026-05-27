@@ -36,24 +36,28 @@ type ADOClient interface {
 	ado.WorkItemFetcher
 	ado.AttachmentDownloader
 	ado.PullRequestFetcher
+	ado.PullRequestMaintainer
 }
 
 type Dependencies struct {
-	PATStore          PATStore
-	ReadSecret        func(prompt string, stdin io.Reader, stderr io.Writer) (string, error)
-	Getwd             func() (string, error)
-	UserHomeDir       func() (string, error)
-	FindRepoRoot      func(start string) (string, error)
-	LoadConfig        func(repoRoot, homeDir, requestedProfile string, scope config.Scope) (*config.Loaded, error)
-	LoadAllConfig     func(repoRoot, homeDir string, scope config.Scope) (*config.Loaded, error)
-	RemoteURLs        func(repoRoot string) ([]string, error)
-	NewHTTPClient     func(proxyURL string) (*http.Client, error)
-	NewADOClient      func(httpClient *http.Client, cfg ado.ClientConfig) (ADOClient, error)
-	FetchTree         func(ctx context.Context, fetcher ado.WorkItemFetcher, rootID int) (*ado.WorkItemTree, error)
-	ExportContext     func(ctx context.Context, downloader ado.AttachmentDownloader, opts ado.ExportOptions, tree *ado.WorkItemTree) (string, error)
-	FetchPullRequest  func(ctx context.Context, fetcher ado.PullRequestFetcher, id int) (*ado.PullRequestBundle, error)
-	ExportPullRequest func(opts ado.PullRequestExportOptions, bundle *ado.PullRequestBundle) (string, error)
-	Now               func() time.Time
+	PATStore            PATStore
+	ReadSecret          func(prompt string, stdin io.Reader, stderr io.Writer) (string, error)
+	Getwd               func() (string, error)
+	UserHomeDir         func() (string, error)
+	FindRepoRoot        func(start string) (string, error)
+	LoadConfig          func(repoRoot, homeDir, requestedProfile string, scope config.Scope) (*config.Loaded, error)
+	LoadAllConfig       func(repoRoot, homeDir string, scope config.Scope) (*config.Loaded, error)
+	RemoteURLs          func(repoRoot string) ([]string, error)
+	GitRemotes          func(repoRoot string) ([]gitRemote, error)
+	CurrentBranch       func(repoRoot string) (string, error)
+	RemoteDefaultBranch func(repoRoot, remoteName string) (string, error)
+	NewHTTPClient       func(proxyURL string) (*http.Client, error)
+	NewADOClient        func(httpClient *http.Client, cfg ado.ClientConfig) (ADOClient, error)
+	FetchTree           func(ctx context.Context, fetcher ado.WorkItemFetcher, rootID int) (*ado.WorkItemTree, error)
+	ExportContext       func(ctx context.Context, downloader ado.AttachmentDownloader, opts ado.ExportOptions, tree *ado.WorkItemTree) (string, error)
+	FetchPullRequest    func(ctx context.Context, fetcher ado.PullRequestFetcher, id int) (*ado.PullRequestBundle, error)
+	ExportPullRequest   func(opts ado.PullRequestExportOptions, bundle *ado.PullRequestBundle) (string, error)
+	Now                 func() time.Time
 }
 
 func NewRunner() Runner {
@@ -139,10 +143,16 @@ func (r Runner) newADOFetchCommand(stdout io.Writer) *cobra.Command {
 
 func (r Runner) newADOPullRequestCommand(stdout io.Writer) *cobra.Command {
 	return &cobra.Command{
-		Use:                "pr <pull-request-id> [--profile <profile-name>] [--global]",
-		Short:              "Fetch Azure DevOps pull request comments",
+		Use:   "pr <pull-request-id>|fetch|ensure|reply|resolve|reopen",
+		Short: "Manage Azure DevOps pull request context and maintenance",
+		Long: "Manage Azure DevOps pull request context and maintenance. Supported operations: fetch, ensure, reply, resolve, and reopen. " +
+			"The compatibility form `adomi ado pr <pull-request-id>` behaves like `adomi ado pr fetch <pull-request-id>`.",
 		DisableFlagParsing: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if len(args) > 0 && (args[0] == "--help" || args[0] == "-h") {
+				_ = cmd.Help()
+				return nil
+			}
 			return r.runADOPullRequest(args, stdout)
 		},
 	}
@@ -222,6 +232,15 @@ func (r Runner) dependencies() Dependencies {
 	if deps.RemoteURLs == nil {
 		deps.RemoteURLs = defaults.RemoteURLs
 	}
+	if deps.GitRemotes == nil {
+		deps.GitRemotes = defaults.GitRemotes
+	}
+	if deps.CurrentBranch == nil {
+		deps.CurrentBranch = defaults.CurrentBranch
+	}
+	if deps.RemoteDefaultBranch == nil {
+		deps.RemoteDefaultBranch = defaults.RemoteDefaultBranch
+	}
 	if deps.NewHTTPClient == nil {
 		deps.NewHTTPClient = defaults.NewHTTPClient
 	}
@@ -248,15 +267,18 @@ func (r Runner) dependencies() Dependencies {
 
 func defaultDependencies() Dependencies {
 	return Dependencies{
-		PATStore:      securestore.NewKeyringStore(),
-		ReadSecret:    readSecret,
-		Getwd:         os.Getwd,
-		UserHomeDir:   os.UserHomeDir,
-		FindRepoRoot:  workspace.FindRepoRoot,
-		LoadConfig:    config.LoadWithScope,
-		LoadAllConfig: config.LoadAllWithScope,
-		RemoteURLs:    gitRemoteURLs,
-		NewHTTPClient: ado.NewHTTPClient,
+		PATStore:            securestore.NewKeyringStore(),
+		ReadSecret:          readSecret,
+		Getwd:               os.Getwd,
+		UserHomeDir:         os.UserHomeDir,
+		FindRepoRoot:        workspace.FindRepoRoot,
+		LoadConfig:          config.LoadWithScope,
+		LoadAllConfig:       config.LoadAllWithScope,
+		RemoteURLs:          gitRemoteURLs,
+		GitRemotes:          gitRemotes,
+		CurrentBranch:       gitCurrentBranch,
+		RemoteDefaultBranch: gitRemoteDefaultBranch,
+		NewHTTPClient:       ado.NewHTTPClient,
 		NewADOClient: func(httpClient *http.Client, cfg ado.ClientConfig) (ADOClient, error) {
 			return ado.NewClient(httpClient, cfg)
 		},
@@ -268,20 +290,64 @@ func defaultDependencies() Dependencies {
 	}
 }
 
+type gitRemote struct {
+	Name string
+	URL  string
+}
+
 func gitRemoteURLs(repoRoot string) ([]string, error) {
-	output, err := exec.Command("git", "-C", repoRoot, "remote", "-v").Output()
+	remotes, err := gitRemotes(repoRoot)
 	if err != nil {
 		return nil, err
 	}
 	seen := map[string]bool{}
 	var urls []string
-	for _, line := range strings.Split(string(output), "\n") {
-		fields := strings.Fields(line)
-		if len(fields) < 2 || seen[fields[1]] {
+	for _, remote := range remotes {
+		if seen[remote.URL] {
 			continue
 		}
-		seen[fields[1]] = true
-		urls = append(urls, fields[1])
+		seen[remote.URL] = true
+		urls = append(urls, remote.URL)
 	}
 	return urls, nil
+}
+
+func gitRemotes(repoRoot string) ([]gitRemote, error) {
+	output, err := exec.Command("git", "-C", repoRoot, "remote", "-v").Output()
+	if err != nil {
+		return nil, err
+	}
+	seen := map[string]bool{}
+	var remotes []gitRemote
+	for _, line := range strings.Split(string(output), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			continue
+		}
+		key := fields[0] + "\x00" + fields[1]
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		remotes = append(remotes, gitRemote{Name: fields[0], URL: fields[1]})
+	}
+	return remotes, nil
+}
+
+func gitCurrentBranch(repoRoot string) (string, error) {
+	output, err := exec.Command("git", "-C", repoRoot, "branch", "--show-current").Output()
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(output)), nil
+}
+
+func gitRemoteDefaultBranch(repoRoot, remoteName string) (string, error) {
+	output, err := exec.Command("git", "-C", repoRoot, "symbolic-ref", "--quiet", "--short", "refs/remotes/"+remoteName+"/HEAD").Output()
+	if err != nil {
+		return "", err
+	}
+	branch := strings.TrimSpace(string(output))
+	branch = strings.TrimPrefix(branch, remoteName+"/")
+	return branch, nil
 }

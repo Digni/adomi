@@ -71,14 +71,63 @@ type PullRequestComment struct {
 	IsDeleted              bool           `json:"isDeleted,omitempty"`
 }
 
+type PullRequestsResponse struct {
+	Count int           `json:"count"`
+	Value []PullRequest `json:"value"`
+}
+
 type PullRequestThreadsResponse struct {
 	Count int                 `json:"count"`
 	Value []PullRequestThread `json:"value"`
 }
 
+type PullRequestListOptions struct {
+	RepositoryID  string
+	SourceRefName string
+	TargetRefName string
+	Status        string
+}
+
+type PullRequestCreateOptions struct {
+	RepositoryID  string
+	SourceRefName string
+	TargetRefName string
+	Title         string
+	Description   string
+}
+
+type PullRequestUpdateOptions struct {
+	RepositoryID  string
+	PullRequestID int
+	Title         *string
+	Description   *string
+}
+
+type PullRequestThreadCommentCreateOptions struct {
+	RepositoryID  string
+	PullRequestID int
+	ThreadID      int
+	Content       string
+}
+
+type PullRequestThreadUpdateOptions struct {
+	RepositoryID  string
+	PullRequestID int
+	ThreadID      int
+	Status        string
+}
+
 type PullRequestFetcher interface {
 	FetchPullRequest(ctx context.Context, id int) (*PullRequest, error)
 	FetchPullRequestThreads(ctx context.Context, repositoryID string, pullRequestID int) ([]PullRequestThread, error)
+}
+
+type PullRequestMaintainer interface {
+	ListPullRequests(ctx context.Context, opts PullRequestListOptions) ([]PullRequest, error)
+	CreatePullRequest(ctx context.Context, opts PullRequestCreateOptions) (*PullRequest, error)
+	UpdatePullRequest(ctx context.Context, opts PullRequestUpdateOptions) (*PullRequest, error)
+	CreatePullRequestThreadComment(ctx context.Context, opts PullRequestThreadCommentCreateOptions) (*PullRequestComment, error)
+	UpdatePullRequestThread(ctx context.Context, opts PullRequestThreadUpdateOptions) (*PullRequestThread, error)
 }
 
 type PullRequestBundle struct {
