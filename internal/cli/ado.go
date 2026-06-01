@@ -83,6 +83,8 @@ func (r Runner) runADOPullRequest(args []string, stdout io.Writer) error {
 			return r.runADOPullRequestFetch(args[1:], stdout)
 		case "ensure":
 			return r.runADOPullRequestEnsure(args[1:], stdout)
+		case "comment":
+			return r.runADOPullRequestComment(args[1:], stdout)
 		case "reply":
 			return r.runADOPullRequestReply(args[1:], stdout)
 		case "resolve":
@@ -216,6 +218,55 @@ func (r Runner) runADOPullRequestEnsure(args []string, stdout io.Writer) error {
 		return writeJSONLine(stdout, result)
 	}
 	fmt.Fprintln(stdout, result.PullRequestID)
+	return nil
+}
+
+func (r Runner) runADOPullRequestComment(args []string, stdout io.Writer) error {
+	commentArgs, err := parsePRCommentArgs(args)
+	if err != nil {
+		return err
+	}
+
+	content := commentArgs.message
+	if commentArgs.messageFile != "" {
+		var provided bool
+		content, provided, err = readOptionalNonBlankFile("--message-file", commentArgs.messageFile)
+		if err != nil {
+			return err
+		}
+		if !provided {
+			return fmt.Errorf("--message-file is required")
+		}
+	}
+
+	client, err := r.newADOPRMaintenanceClient(commentArgs.profile, commentArgs.global)
+	if err != nil {
+		return err
+	}
+	ctx := context.Background()
+	repositoryID, err := fetchPullRequestRepositoryID(ctx, client, commentArgs.pullRequestID)
+	if err != nil {
+		return err
+	}
+	thread, err := client.CreatePullRequestThread(ctx, ado.PullRequestThreadCreateOptions{
+		RepositoryID:  repositoryID,
+		PullRequestID: commentArgs.pullRequestID,
+		Content:       content,
+	})
+	if err != nil {
+		return err
+	}
+	if thread.ID <= 0 {
+		return fmt.Errorf("Azure DevOps pull request thread response missing thread ID")
+	}
+	result := prThreadResult{PullRequestID: commentArgs.pullRequestID, ThreadID: thread.ID, Action: "commented"}
+	if len(thread.Comments) > 0 && thread.Comments[0].ID > 0 {
+		result.CommentID = thread.Comments[0].ID
+	}
+	if commentArgs.json {
+		return writeJSONLine(stdout, result)
+	}
+	fmt.Fprintln(stdout, thread.ID)
 	return nil
 }
 
@@ -717,6 +768,15 @@ type prEnsureArgs struct {
 	json        bool
 }
 
+type prCommentArgs struct {
+	pullRequestID int
+	message       string
+	messageFile   string
+	profile       string
+	global        bool
+	json          bool
+}
+
 type prThreadArgs struct {
 	pullRequestID int
 	threadID      int
@@ -839,6 +899,54 @@ func resolvePREnsureRefs(deps Dependencies, repoRoot, remoteName string, args pr
 		return prRefs{}, fmt.Errorf("source and target branches must be different")
 	}
 	return refs, nil
+}
+
+func parsePRCommentArgs(args []string) (prCommentArgs, error) {
+	if len(args) == 0 {
+		return prCommentArgs{}, fmt.Errorf("usage: adomi ado pr comment <pull-request-id> (--message <text> | --message-file <path>)")
+	}
+	pullRequestID, err := strconv.Atoi(args[0])
+	if err != nil || pullRequestID <= 0 {
+		return prCommentArgs{}, fmt.Errorf("pull request ID must be a positive integer")
+	}
+	parsed := prCommentArgs{pullRequestID: pullRequestID}
+	for i := 1; i < len(args); i++ {
+		switch args[i] {
+		case "--message":
+			if i+1 >= len(args) || args[i+1] == "" || strings.HasPrefix(args[i+1], "-") {
+				return prCommentArgs{}, fmt.Errorf("--message requires a value")
+			}
+			if strings.TrimSpace(args[i+1]) == "" {
+				return prCommentArgs{}, fmt.Errorf("--message cannot be empty")
+			}
+			parsed.message = args[i+1]
+			i++
+		case "--message-file":
+			if i+1 >= len(args) || args[i+1] == "" || strings.HasPrefix(args[i+1], "-") {
+				return prCommentArgs{}, fmt.Errorf("--message-file requires a value")
+			}
+			parsed.messageFile = args[i+1]
+			i++
+		case "--profile":
+			if i+1 >= len(args) || args[i+1] == "" || strings.HasPrefix(args[i+1], "-") {
+				return prCommentArgs{}, fmt.Errorf("--profile requires a value")
+			}
+			parsed.profile = args[i+1]
+			i++
+		case "--global":
+			parsed.global = true
+		case "--json":
+			parsed.json = true
+		default:
+			return prCommentArgs{}, fmt.Errorf("unknown argument %q", args[i])
+		}
+	}
+	hasMessage := parsed.message != ""
+	hasFile := parsed.messageFile != ""
+	if hasMessage == hasFile {
+		return prCommentArgs{}, fmt.Errorf("exactly one of --message or --message-file is required")
+	}
+	return parsed, nil
 }
 
 func parsePRThreadArgs(command string, args []string, requireMessage bool) (prThreadArgs, error) {

@@ -143,9 +143,9 @@ func (r Runner) newADOFetchCommand(stdout io.Writer) *cobra.Command {
 
 func (r Runner) newADOPullRequestCommand(stdout io.Writer) *cobra.Command {
 	return &cobra.Command{
-		Use:   "pr <pull-request-id>|fetch|ensure|reply|resolve|reopen",
+		Use:   "pr <pull-request-id>|fetch|ensure|comment|reply|resolve|reopen",
 		Short: "Manage Azure DevOps pull request context and maintenance",
-		Long: "Manage Azure DevOps pull request context and maintenance. Supported operations: fetch, ensure, reply, resolve, and reopen. " +
+		Long: "Manage Azure DevOps pull request context and maintenance. Supported operations: fetch, ensure, comment, reply, resolve, and reopen. " +
 			"The compatibility form `adomi ado pr <pull-request-id>` behaves like `adomi ado pr fetch <pull-request-id>`.",
 		DisableFlagParsing: true,
 		RunE: func(cmd *cobra.Command, args []string) error {

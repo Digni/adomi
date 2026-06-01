@@ -103,6 +103,12 @@ type PullRequestUpdateOptions struct {
 	Description   *string
 }
 
+type PullRequestThreadCreateOptions struct {
+	RepositoryID  string
+	PullRequestID int
+	Content       string
+}
+
 type PullRequestThreadCommentCreateOptions struct {
 	RepositoryID  string
 	PullRequestID int
@@ -126,6 +132,7 @@ type PullRequestMaintainer interface {
 	ListPullRequests(ctx context.Context, opts PullRequestListOptions) ([]PullRequest, error)
 	CreatePullRequest(ctx context.Context, opts PullRequestCreateOptions) (*PullRequest, error)
 	UpdatePullRequest(ctx context.Context, opts PullRequestUpdateOptions) (*PullRequest, error)
+	CreatePullRequestThread(ctx context.Context, opts PullRequestThreadCreateOptions) (*PullRequestThread, error)
 	CreatePullRequestThreadComment(ctx context.Context, opts PullRequestThreadCommentCreateOptions) (*PullRequestComment, error)
 	UpdatePullRequestThread(ctx context.Context, opts PullRequestThreadUpdateOptions) (*PullRequestThread, error)
 }

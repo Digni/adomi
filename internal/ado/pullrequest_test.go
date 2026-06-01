@@ -343,6 +343,64 @@ func TestClientUpdatePullRequestBuildsURLAuthAndBody(t *testing.T) {
 	}
 }
 
+func TestClientCreatePullRequestThreadBuildsURLAuthAndBody(t *testing.T) {
+	var seenMethod string
+	var seenPath string
+	var seenAPIVersion string
+	var body map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seenMethod = r.Method
+		seenPath = r.URL.EscapedPath()
+		seenAPIVersion = r.URL.Query().Get("api-version")
+		if r.Header.Get("Authorization") == "" {
+			t.Fatal("missing Authorization header")
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatalf("decoding request body: %v", err)
+		}
+		fmt.Fprint(w, `{"id":14,"status":"active","comments":[{"id":1,"content":"Looks good","commentType":"text"}]}`)
+	}))
+	t.Cleanup(server.Close)
+	client, err := NewClient(server.Client(), ClientConfig{BaseURL: server.URL + "/tfs/DefaultCollection", Project: "MyProject", APIVersion: "7.1", PAT: "secret"})
+	if err != nil {
+		t.Fatalf("NewClient returned error: %v", err)
+	}
+
+	thread, err := client.CreatePullRequestThread(context.Background(), PullRequestThreadCreateOptions{RepositoryID: "repo-uuid", PullRequestID: 44, Content: "Looks good"})
+	if err != nil {
+		t.Fatalf("CreatePullRequestThread returned error: %v", err)
+	}
+	if thread.ID != 14 || thread.Status != "active" || len(thread.Comments) != 1 || thread.Comments[0].ID != 1 {
+		t.Fatalf("thread = %+v, want created thread", thread)
+	}
+	if seenMethod != http.MethodPost {
+		t.Fatalf("method = %q, want POST", seenMethod)
+	}
+	if seenPath != "/tfs/DefaultCollection/MyProject/_apis/git/repositories/repo-uuid/pullrequests/44/threads" {
+		t.Fatalf("path = %q, want thread collection path", seenPath)
+	}
+	if seenAPIVersion != "7.1" {
+		t.Fatalf("api-version = %q, want 7.1", seenAPIVersion)
+	}
+	comments, ok := body["comments"].([]any)
+	if !ok || len(comments) != 1 {
+		t.Fatalf("body = %#v, want one comment", body)
+	}
+	comment, ok := comments[0].(map[string]any)
+	if !ok {
+		t.Fatalf("comments[0] = %#v, want object", comments[0])
+	}
+	if comment["parentCommentId"] != float64(0) || comment["content"] != "Looks good" || comment["commentType"] != "text" || body["status"] != "active" {
+		t.Fatalf("body = %#v, want active text comment", body)
+	}
+	if _, ok := body["threadContext"]; ok {
+		t.Fatalf("body = %#v, want no threadContext for PR-level comment", body)
+	}
+	if _, ok := body["pullRequestThreadContext"]; ok {
+		t.Fatalf("body = %#v, want no pullRequestThreadContext for PR-level comment", body)
+	}
+}
+
 func TestClientCreatePullRequestThreadCommentBuildsURLAuthAndBody(t *testing.T) {
 	var seenMethod string
 	var seenPath string
@@ -447,6 +505,10 @@ func TestPullRequestMaintenanceMethodsRequireRepositoryID(t *testing.T) {
 			_, err := client.UpdatePullRequest(ctx, PullRequestUpdateOptions{PullRequestID: 1})
 			return err
 		}},
+		{name: "create thread", call: func() error {
+			_, err := client.CreatePullRequestThread(ctx, PullRequestThreadCreateOptions{PullRequestID: 1, Content: "x"})
+			return err
+		}},
 		{name: "comment", call: func() error {
 			_, err := client.CreatePullRequestThreadComment(ctx, PullRequestThreadCommentCreateOptions{PullRequestID: 1, ThreadID: 1, Content: "x"})
 			return err
@@ -494,6 +556,10 @@ func TestPullRequestMaintenanceMethodsReturnNon2xxErrors(t *testing.T) {
 		}},
 		{name: "update", call: func() error {
 			_, err := client.UpdatePullRequest(ctx, PullRequestUpdateOptions{RepositoryID: "repo", PullRequestID: 1, Title: &title})
+			return err
+		}},
+		{name: "create thread", call: func() error {
+			_, err := client.CreatePullRequestThread(ctx, PullRequestThreadCreateOptions{RepositoryID: "repo", PullRequestID: 1, Content: "x"})
 			return err
 		}},
 		{name: "comment", call: func() error {
@@ -545,6 +611,10 @@ func TestPullRequestMaintenanceMethodsRejectMissingResponseIDs(t *testing.T) {
 		}},
 		{name: "update", responseBody: `{}`, want: "pull request ID", call: func(client *Client) error {
 			_, err := client.UpdatePullRequest(ctx, PullRequestUpdateOptions{RepositoryID: "repo", PullRequestID: 1, Title: &title})
+			return err
+		}},
+		{name: "create thread", responseBody: `{}`, want: "thread ID", call: func(client *Client) error {
+			_, err := client.CreatePullRequestThread(ctx, PullRequestThreadCreateOptions{RepositoryID: "repo", PullRequestID: 1, Content: "x"})
 			return err
 		}},
 		{name: "comment", responseBody: `{}`, want: "comment ID", call: func(client *Client) error {
@@ -605,6 +675,10 @@ func assertPullRequestMaintenanceDecodeErrors(t *testing.T, responseBody string)
 		}},
 		{name: "update", want: "decoding Azure DevOps pull request update response", call: func() error {
 			_, err := client.UpdatePullRequest(ctx, PullRequestUpdateOptions{RepositoryID: "repo", PullRequestID: 1, Title: &title})
+			return err
+		}},
+		{name: "create thread", want: "decoding Azure DevOps pull request thread create response", call: func() error {
+			_, err := client.CreatePullRequestThread(ctx, PullRequestThreadCreateOptions{RepositoryID: "repo", PullRequestID: 1, Content: "x"})
 			return err
 		}},
 		{name: "comment", want: "decoding Azure DevOps pull request thread comment", call: func() error {

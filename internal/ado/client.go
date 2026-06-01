@@ -258,6 +258,28 @@ func (c *Client) UpdatePullRequest(ctx context.Context, opts PullRequestUpdateOp
 	return &pr, nil
 }
 
+func (c *Client) CreatePullRequestThread(ctx context.Context, opts PullRequestThreadCreateOptions) (*PullRequestThread, error) {
+	if strings.TrimSpace(opts.RepositoryID) == "" {
+		return nil, fmt.Errorf("pull request thread create request requires repository ID")
+	}
+	body := map[string]any{
+		"comments": []map[string]any{{
+			"parentCommentId": 0,
+			"content":         opts.Content,
+			"commentType":     "text",
+		}},
+		"status": "active",
+	}
+	var thread PullRequestThread
+	if err := c.doJSON(ctx, http.MethodPost, c.pullRequestThreadCollectionURL(opts.RepositoryID, opts.PullRequestID), body, &thread, "creating Azure DevOps pull request thread", "decoding Azure DevOps pull request thread create response"); err != nil {
+		return nil, err
+	}
+	if thread.ID <= 0 {
+		return nil, fmt.Errorf("Azure DevOps pull request thread response missing thread ID")
+	}
+	return &thread, nil
+}
+
 func (c *Client) CreatePullRequestThreadComment(ctx context.Context, opts PullRequestThreadCommentCreateOptions) (*PullRequestComment, error) {
 	if strings.TrimSpace(opts.RepositoryID) == "" {
 		return nil, fmt.Errorf("pull request thread comment request requires repository ID")

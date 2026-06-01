@@ -1176,11 +1176,234 @@ func TestADOPullRequestEnsureJSONOutput(t *testing.T) {
 		t.Fatalf("stdout = %q, want exactly one trailing newline", stdout.String())
 	}
 	var payload map[string]any
-	if err := json.Unmarshal([]byte(stdout.String()), &payload); err != nil {
+	if err := json.Unmarshal(stdout.Bytes(), &payload); err != nil {
 		t.Fatalf("stdout is not JSON: %q: %v", stdout.String(), err)
 	}
 	if payload["pullRequestId"] != float64(42) || payload["action"] != "unchanged" || payload["repository"] != "adomi" || payload["sourceRefName"] != "refs/heads/feature/x" || payload["targetRefName"] != "refs/heads/main" {
 		t.Fatalf("payload = %+v, want unchanged PR summary", payload)
+	}
+}
+
+func TestADOPullRequestCommentCreatesThreadFromInlineMessage(t *testing.T) {
+	client := &fakePRMaintenanceClient{fetched: &ado.PullRequest{ID: 42, Repository: ado.PullRequestRepo{ID: "repo-uuid"}}, createdThread: &ado.PullRequestThread{ID: 14, Comments: []ado.PullRequestComment{{ID: 1}}}}
+	runner := prThreadTestRunner(t, client)
+	var stdout, stderr bytes.Buffer
+
+	err := runner.Run([]string{"ado", "pr", "comment", "42", "--message", "Looks good", "--profile", "company-cloud"}, strings.NewReader(""), &stdout, &stderr)
+	if err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+	if stdout.String() != "14\n" {
+		t.Fatalf("stdout = %q, want thread ID", stdout.String())
+	}
+	if stderr.String() != "" {
+		t.Fatalf("stderr = %q, want empty", stderr.String())
+	}
+	if client.fetchPRCalled != 1 || client.fetchedPRID != 42 {
+		t.Fatalf("fetch PR called/id = %d/%d, want 1/42", client.fetchPRCalled, client.fetchedPRID)
+	}
+	if client.threadCreateCalled != 1 || client.threadCreateOpts.RepositoryID != "repo-uuid" || client.threadCreateOpts.PullRequestID != 42 || client.threadCreateOpts.Content != "Looks good" {
+		t.Fatalf("thread create called/opts = %d/%+v, want repo/pr/content", client.threadCreateCalled, client.threadCreateOpts)
+	}
+	if client.commentCalled != 0 || client.threadUpdateCalled != 0 {
+		t.Fatalf("calls comment/threadUpdate = %d/%d, want none", client.commentCalled, client.threadUpdateCalled)
+	}
+}
+
+func TestADOPullRequestCommentCreatesThreadFromMessageFile(t *testing.T) {
+	messagePath := filepath.Join(t.TempDir(), "comment.md")
+	if err := os.WriteFile(messagePath, []byte("Looks good\n"), 0o644); err != nil {
+		t.Fatalf("writing comment: %v", err)
+	}
+	client := &fakePRMaintenanceClient{fetched: &ado.PullRequest{ID: 42, Repository: ado.PullRequestRepo{ID: "repo-uuid"}}, createdThread: &ado.PullRequestThread{ID: 15, Comments: []ado.PullRequestComment{{ID: 2}}}}
+	runner := prThreadTestRunner(t, client)
+	var stdout bytes.Buffer
+
+	err := runner.Run([]string{"ado", "pr", "comment", "42", "--message-file", messagePath}, strings.NewReader(""), &stdout, &bytes.Buffer{})
+	if err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+	if stdout.String() != "15\n" {
+		t.Fatalf("stdout = %q, want thread ID", stdout.String())
+	}
+	if client.threadCreateOpts.Content != "Looks good\n" {
+		t.Fatalf("thread content = %q, want file content", client.threadCreateOpts.Content)
+	}
+}
+
+func TestADOPullRequestCommentJSONOutput(t *testing.T) {
+	client := &fakePRMaintenanceClient{fetched: &ado.PullRequest{ID: 42, Repository: ado.PullRequestRepo{ID: "repo-uuid"}}, createdThread: &ado.PullRequestThread{ID: 14, Comments: []ado.PullRequestComment{{ID: 3}}}}
+	runner := prThreadTestRunner(t, client)
+	var stdout, stderr bytes.Buffer
+
+	err := runner.Run([]string{"ado", "pr", "comment", "42", "--message", "Looks good", "--json"}, strings.NewReader(""), &stdout, &stderr)
+	if err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+	if stderr.String() != "" {
+		t.Fatalf("stderr = %q, want empty", stderr.String())
+	}
+	if !strings.HasSuffix(stdout.String(), "\n") || strings.HasSuffix(strings.TrimSuffix(stdout.String(), "\n"), "\n") {
+		t.Fatalf("stdout = %q, want exactly one trailing newline", stdout.String())
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(stdout.Bytes(), &payload); err != nil {
+		t.Fatalf("stdout is not JSON: %q: %v", stdout.String(), err)
+	}
+	if payload["pullRequestId"] != float64(42) || payload["threadId"] != float64(14) || payload["commentId"] != float64(3) || payload["action"] != "commented" {
+		t.Fatalf("payload = %+v, want comment summary", payload)
+	}
+}
+
+func TestADOPullRequestCommentJSONOmitsMissingInitialCommentID(t *testing.T) {
+	client := &fakePRMaintenanceClient{fetched: &ado.PullRequest{ID: 42, Repository: ado.PullRequestRepo{ID: "repo-uuid"}}, createdThread: &ado.PullRequestThread{ID: 14}}
+	runner := prThreadTestRunner(t, client)
+	var stdout bytes.Buffer
+
+	err := runner.Run([]string{"ado", "pr", "comment", "42", "--message", "Looks good", "--json"}, strings.NewReader(""), &stdout, &bytes.Buffer{})
+	if err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(stdout.Bytes(), &payload); err != nil {
+		t.Fatalf("stdout is not JSON: %q: %v", stdout.String(), err)
+	}
+	if _, ok := payload["commentId"]; ok {
+		t.Fatalf("payload = %+v, want omitted commentId", payload)
+	}
+}
+
+func TestADOPullRequestCommentRejectsInvalidArgsBeforeCredentials(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+		want string
+	}{
+		{name: "missing PR ID", args: []string{"ado", "pr", "comment"}, want: "usage"},
+		{name: "non-positive PR ID", args: []string{"ado", "pr", "comment", "0", "--message", "x"}, want: "pull request ID"},
+		{name: "missing message source", args: []string{"ado", "pr", "comment", "42"}, want: "--message"},
+		{name: "conflicting message sources", args: []string{"ado", "pr", "comment", "42", "--message", "x", "--message-file", "comment.md"}, want: "exactly one"},
+		{name: "empty message", args: []string{"ado", "pr", "comment", "42", "--message", "   "}, want: "--message cannot be empty"},
+		{name: "thread is rejected", args: []string{"ado", "pr", "comment", "42", "--thread", "7", "--message", "x"}, want: "unknown"},
+		{name: "file is rejected", args: []string{"ado", "pr", "comment", "42", "--file", "/main.go", "--message", "x"}, want: "unknown"},
+		{name: "line is rejected", args: []string{"ado", "pr", "comment", "42", "--line", "12", "--message", "x"}, want: "unknown"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			runner := Runner{deps: Dependencies{PATStore: &fakePATStore{}}}
+			var stdout bytes.Buffer
+			err := runner.Run(tt.args, strings.NewReader(""), &stdout, &bytes.Buffer{})
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("error = %v, want %q", err, tt.want)
+			}
+			if stdout.String() != "" {
+				t.Fatalf("stdout = %q, want empty", stdout.String())
+			}
+		})
+	}
+}
+
+func TestADOPullRequestCommentRejectsEmptyMessageFileBeforeNetwork(t *testing.T) {
+	messagePath := filepath.Join(t.TempDir(), "empty.md")
+	if err := os.WriteFile(messagePath, nil, 0o644); err != nil {
+		t.Fatalf("writing comment: %v", err)
+	}
+	client := &fakePRMaintenanceClient{}
+	runner := prThreadTestRunner(t, client)
+	var stdout bytes.Buffer
+
+	err := runner.Run([]string{"ado", "pr", "comment", "42", "--message-file", messagePath}, strings.NewReader(""), &stdout, &bytes.Buffer{})
+	if err == nil || !strings.Contains(err.Error(), "--message-file cannot be empty") {
+		t.Fatalf("error = %v, want empty message-file", err)
+	}
+	if stdout.String() != "" {
+		t.Fatalf("stdout = %q, want empty", stdout.String())
+	}
+	if client.fetchPRCalled != 0 || client.threadCreateCalled != 0 {
+		t.Fatalf("calls fetch/threadCreate = %d/%d, want none", client.fetchPRCalled, client.threadCreateCalled)
+	}
+}
+
+func TestADOPullRequestCommentRejectsWhitespaceOnlyMessageFileBeforeNetwork(t *testing.T) {
+	messagePath := filepath.Join(t.TempDir(), "blank.md")
+	if err := os.WriteFile(messagePath, []byte(" \n\t"), 0o644); err != nil {
+		t.Fatalf("writing comment: %v", err)
+	}
+	client := &fakePRMaintenanceClient{}
+	runner := prThreadTestRunner(t, client)
+	var stdout bytes.Buffer
+
+	err := runner.Run([]string{"ado", "pr", "comment", "42", "--message-file", messagePath}, strings.NewReader(""), &stdout, &bytes.Buffer{})
+	if err == nil || !strings.Contains(err.Error(), "--message-file cannot be empty") {
+		t.Fatalf("error = %v, want empty message-file", err)
+	}
+	if stdout.String() != "" {
+		t.Fatalf("stdout = %q, want empty", stdout.String())
+	}
+	if client.fetchPRCalled != 0 || client.threadCreateCalled != 0 {
+		t.Fatalf("calls fetch/threadCreate = %d/%d, want none", client.fetchPRCalled, client.threadCreateCalled)
+	}
+}
+
+func TestADOPullRequestCommentRejectsMissingRepositoryIDBeforeThreadCreate(t *testing.T) {
+	client := &fakePRMaintenanceClient{fetched: &ado.PullRequest{ID: 42}}
+	runner := prThreadTestRunner(t, client)
+	var stdout bytes.Buffer
+
+	err := runner.Run([]string{"ado", "pr", "comment", "42", "--message", "Looks good"}, strings.NewReader(""), &stdout, &bytes.Buffer{})
+	if err == nil || !strings.Contains(err.Error(), "repository ID") {
+		t.Fatalf("error = %v, want repository ID", err)
+	}
+	if stdout.String() != "" {
+		t.Fatalf("stdout = %q, want empty", stdout.String())
+	}
+	if client.fetchPRCalled != 1 || client.threadCreateCalled != 0 {
+		t.Fatalf("calls fetch/threadCreate = %d/%d, want fetch only", client.fetchPRCalled, client.threadCreateCalled)
+	}
+}
+
+func TestADOPullRequestCommentMutationErrorLeavesStdoutEmpty(t *testing.T) {
+	client := &fakePRMaintenanceClient{fetched: &ado.PullRequest{ID: 42, Repository: ado.PullRequestRepo{ID: "repo-uuid"}}, threadCreateErr: errors.New("thread failed")}
+	runner := prThreadTestRunner(t, client)
+	var stdout bytes.Buffer
+
+	err := runner.Run([]string{"ado", "pr", "comment", "42", "--message", "Looks good"}, strings.NewReader(""), &stdout, &bytes.Buffer{})
+	if err == nil || !strings.Contains(err.Error(), "thread failed") {
+		t.Fatalf("error = %v, want thread failure", err)
+	}
+	if stdout.String() != "" {
+		t.Fatalf("stdout = %q, want empty", stdout.String())
+	}
+}
+
+func TestADOPullRequestCommentFetchErrorLeavesStdoutEmpty(t *testing.T) {
+	client := &fakePRMaintenanceClient{fetchPRErr: errors.New("fetch failed")}
+	runner := prThreadTestRunner(t, client)
+	var stdout bytes.Buffer
+
+	err := runner.Run([]string{"ado", "pr", "comment", "42", "--message", "Looks good"}, strings.NewReader(""), &stdout, &bytes.Buffer{})
+	if err == nil || !strings.Contains(err.Error(), "fetch failed") {
+		t.Fatalf("error = %v, want fetch failure", err)
+	}
+	if stdout.String() != "" {
+		t.Fatalf("stdout = %q, want empty", stdout.String())
+	}
+	if client.fetchPRCalled != 1 || client.fetchedPRID != 42 || client.threadCreateCalled != 0 || client.commentCalled != 0 || client.threadUpdateCalled != 0 {
+		t.Fatalf("calls fetch/id/threadCreate/comment/threadUpdate = %d/%d/%d/%d/%d, want 1/42/0/0/0", client.fetchPRCalled, client.fetchedPRID, client.threadCreateCalled, client.commentCalled, client.threadUpdateCalled)
+	}
+}
+
+func TestADOPullRequestCommentRejectsMissingThreadIDResponse(t *testing.T) {
+	client := &fakePRMaintenanceClient{fetched: &ado.PullRequest{ID: 42, Repository: ado.PullRequestRepo{ID: "repo-uuid"}}, createdThread: &ado.PullRequestThread{}}
+	runner := prThreadTestRunner(t, client)
+	var stdout bytes.Buffer
+
+	err := runner.Run([]string{"ado", "pr", "comment", "42", "--message", "Looks good"}, strings.NewReader(""), &stdout, &bytes.Buffer{})
+	if err == nil || !strings.Contains(err.Error(), "thread ID") {
+		t.Fatalf("error = %v, want thread ID", err)
+	}
+	if stdout.String() != "" {
+		t.Fatalf("stdout = %q, want empty", stdout.String())
 	}
 }
 
@@ -1247,7 +1470,7 @@ func TestADOPullRequestReplyJSONOutput(t *testing.T) {
 		t.Fatalf("stdout = %q, want exactly one trailing newline", stdout.String())
 	}
 	var payload map[string]any
-	if err := json.Unmarshal([]byte(stdout.String()), &payload); err != nil {
+	if err := json.Unmarshal(stdout.Bytes(), &payload); err != nil {
 		t.Fatalf("stdout is not JSON: %q: %v", stdout.String(), err)
 	}
 	if payload["pullRequestId"] != float64(42) || payload["threadId"] != float64(7) || payload["commentId"] != float64(8) || payload["action"] != "replied" {
@@ -1311,7 +1534,7 @@ func TestADOPullRequestThreadStatusJSONOutput(t *testing.T) {
 		t.Fatalf("stdout = %q, want exactly one trailing newline", stdout.String())
 	}
 	var payload map[string]any
-	if err := json.Unmarshal([]byte(stdout.String()), &payload); err != nil {
+	if err := json.Unmarshal(stdout.Bytes(), &payload); err != nil {
 		t.Fatalf("stdout is not JSON: %q: %v", stdout.String(), err)
 	}
 	if payload["pullRequestId"] != float64(42) || payload["threadId"] != float64(7) || payload["status"] != "fixed" || payload["action"] != "resolved" {
@@ -1557,7 +1780,7 @@ func TestADOPullRequestNamespaceHelpListsSupportedOperations(t *testing.T) {
 	if stdout.String() != "" {
 		t.Fatalf("stdout = %q, want empty", stdout.String())
 	}
-	for _, want := range []string{"fetch", "ensure", "reply", "resolve", "reopen"} {
+	for _, want := range []string{"fetch", "ensure", "comment", "reply", "resolve", "reopen"} {
 		if !strings.Contains(stderr.String(), want) {
 			t.Fatalf("stderr = %q, want %q", stderr.String(), want)
 		}
@@ -1914,6 +2137,10 @@ func (fakeADOClient) UpdatePullRequest(ctx context.Context, opts ado.PullRequest
 	return &ado.PullRequest{}, nil
 }
 
+func (fakeADOClient) CreatePullRequestThread(ctx context.Context, opts ado.PullRequestThreadCreateOptions) (*ado.PullRequestThread, error) {
+	return &ado.PullRequestThread{}, nil
+}
+
 func (fakeADOClient) CreatePullRequestThreadComment(ctx context.Context, opts ado.PullRequestThreadCommentCreateOptions) (*ado.PullRequestComment, error) {
 	return &ado.PullRequestComment{}, nil
 }
@@ -1932,6 +2159,8 @@ type fakePRMaintenanceClient struct {
 	updateErr          error
 	fetched            *ado.PullRequest
 	fetchPRErr         error
+	createdThread      *ado.PullRequestThread
+	threadCreateErr    error
 	createdComment     *ado.PullRequestComment
 	commentErr         error
 	updatedThread      *ado.PullRequestThread
@@ -1940,12 +2169,14 @@ type fakePRMaintenanceClient struct {
 	createCalled       int
 	updateCalled       int
 	fetchPRCalled      int
+	threadCreateCalled int
 	commentCalled      int
 	threadUpdateCalled int
 	fetchedPRID        int
 	listOpts           ado.PullRequestListOptions
 	createOpts         ado.PullRequestCreateOptions
 	updateOpts         ado.PullRequestUpdateOptions
+	threadCreateOpts   ado.PullRequestThreadCreateOptions
 	commentOpts        ado.PullRequestThreadCommentCreateOptions
 	threadUpdateOpts   ado.PullRequestThreadUpdateOptions
 }
@@ -1993,6 +2224,18 @@ func (f *fakePRMaintenanceClient) UpdatePullRequest(ctx context.Context, opts ad
 		return f.updated, nil
 	}
 	return &ado.PullRequest{ID: opts.PullRequestID}, nil
+}
+
+func (f *fakePRMaintenanceClient) CreatePullRequestThread(ctx context.Context, opts ado.PullRequestThreadCreateOptions) (*ado.PullRequestThread, error) {
+	f.threadCreateCalled++
+	f.threadCreateOpts = opts
+	if f.threadCreateErr != nil {
+		return nil, f.threadCreateErr
+	}
+	if f.createdThread != nil {
+		return f.createdThread, nil
+	}
+	return &ado.PullRequestThread{ID: 14, Status: "active", Comments: []ado.PullRequestComment{{ID: 1}}}, nil
 }
 
 func (f *fakePRMaintenanceClient) CreatePullRequestThreadComment(ctx context.Context, opts ado.PullRequestThreadCommentCreateOptions) (*ado.PullRequestComment, error) {
