@@ -91,6 +91,7 @@ adomi ado pr <pull-request-id> # compatibility alias for fetch
 adomi ado pr ensure --title <title>
 adomi ado pr ensure --description-file <path>
 adomi ado pr comment <pull-request-id> --message-file <path>
+adomi ado pr comment <pull-request-id> --file <path> --line <line> --message-file <path>
 adomi ado pr reply <pull-request-id> --thread <thread-id> --message-file <path>
 adomi ado pr resolve <pull-request-id> --thread <thread-id>
 adomi ado pr reopen <pull-request-id> --thread <thread-id>
@@ -98,7 +99,7 @@ adomi ado pr reopen <pull-request-id> --thread <thread-id>
 
 `adomi ado pr ensure` runs inside the current Git repository. It infers the Azure DevOps repository from matching git remotes, the source branch from the current branch, and the target branch from the selected remote default branch when possible. Use `--repository <name-or-id>`, `--source <branch>`, or `--target <branch>` when inference is ambiguous or unavailable.
 
-PR maintenance is intentionally narrow: it can create/update title or description for the active branch PR, create a new PR-level comment thread, reply to explicit thread IDs, and mark explicit threads `fixed` or `active`. It does not approve, reject, merge/complete, abandon, set auto-complete, bypass policies, or manage reviewers.
+PR maintenance is intentionally narrow: it can create/update title or description for the active branch PR, create a new PR-level comment thread, create a right-side single-line inline comment on the latest changed PR file version, reply to explicit thread IDs, and mark explicit threads `fixed` or `active`. Inline comments do not support deleted/left-side targets, ranges, explicit offsets, suggestions, or manual iteration overrides. It does not approve, reject, merge/complete, abandon, set auto-complete, bypass policies, or manage reviewers.
 
 `adomi ado config init` is retained only as a hidden compatibility alias; prefer `adomi config init` in user-facing docs and scripts.
 

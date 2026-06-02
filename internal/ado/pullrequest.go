@@ -81,6 +81,33 @@ type PullRequestThreadsResponse struct {
 	Value []PullRequestThread `json:"value"`
 }
 
+type PullRequestIterationsResponse struct {
+	Count int                    `json:"count"`
+	Value []PullRequestIteration `json:"value"`
+}
+
+type PullRequestIteration struct {
+	ID int `json:"id"`
+}
+
+type PullRequestIterationChangesResponse struct {
+	ChangeEntries []PullRequestIterationChange `json:"changeEntries"`
+	NextSkip      int                          `json:"nextSkip"`
+	NextTop       int                          `json:"nextTop"`
+}
+
+type PullRequestIterationChange struct {
+	ChangeTrackingID int                    `json:"changeTrackingId"`
+	ChangeID         int                    `json:"changeId,omitempty"`
+	ChangeType       string                 `json:"changeType,omitempty"`
+	Item             PullRequestChangedItem `json:"item,omitempty"`
+	OriginalPath     string                 `json:"originalPath,omitempty"`
+}
+
+type PullRequestChangedItem struct {
+	Path string `json:"path,omitempty"`
+}
+
 type PullRequestListOptions struct {
 	RepositoryID  string
 	SourceRefName string
@@ -104,9 +131,29 @@ type PullRequestUpdateOptions struct {
 }
 
 type PullRequestThreadCreateOptions struct {
+	RepositoryID             string
+	PullRequestID            int
+	Content                  string
+	ThreadContext            *ThreadContext
+	PullRequestThreadContext *PullRequestThreadContext
+}
+
+type PullRequestThreadContext struct {
+	ChangeTrackingID int                      `json:"changeTrackingId,omitempty"`
+	IterationContext *CommentIterationContext `json:"iterationContext,omitempty"`
+}
+
+type CommentIterationContext struct {
+	FirstComparingIteration  int `json:"firstComparingIteration,omitempty"`
+	SecondComparingIteration int `json:"secondComparingIteration,omitempty"`
+}
+
+type PullRequestIterationChangesOptions struct {
 	RepositoryID  string
 	PullRequestID int
-	Content       string
+	IterationID   int
+	CompareTo     int
+	Top           int
 }
 
 type PullRequestThreadCommentCreateOptions struct {
@@ -132,6 +179,8 @@ type PullRequestMaintainer interface {
 	ListPullRequests(ctx context.Context, opts PullRequestListOptions) ([]PullRequest, error)
 	CreatePullRequest(ctx context.Context, opts PullRequestCreateOptions) (*PullRequest, error)
 	UpdatePullRequest(ctx context.Context, opts PullRequestUpdateOptions) (*PullRequest, error)
+	ListPullRequestIterations(ctx context.Context, repositoryID string, pullRequestID int) ([]PullRequestIteration, error)
+	ListPullRequestIterationChanges(ctx context.Context, opts PullRequestIterationChangesOptions) ([]PullRequestIterationChange, error)
 	CreatePullRequestThread(ctx context.Context, opts PullRequestThreadCreateOptions) (*PullRequestThread, error)
 	CreatePullRequestThreadComment(ctx context.Context, opts PullRequestThreadCommentCreateOptions) (*PullRequestComment, error)
 	UpdatePullRequestThread(ctx context.Context, opts PullRequestThreadUpdateOptions) (*PullRequestThread, error)

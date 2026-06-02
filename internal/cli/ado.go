@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/url"
 	"os"
+	"path"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -248,11 +249,32 @@ func (r Runner) runADOPullRequestComment(args []string, stdout io.Writer) error 
 	if err != nil {
 		return err
 	}
-	thread, err := client.CreatePullRequestThread(ctx, ado.PullRequestThreadCreateOptions{
+	createOpts := ado.PullRequestThreadCreateOptions{
 		RepositoryID:  repositoryID,
 		PullRequestID: commentArgs.pullRequestID,
 		Content:       content,
-	})
+	}
+	var inlineTarget prInlineCommentTarget
+	if commentArgs.inlineTarget() {
+		inlineTarget, err = resolvePullRequestInlineCommentTarget(ctx, client, repositoryID, commentArgs.pullRequestID, commentArgs.file)
+		if err != nil {
+			return err
+		}
+		position := &ado.FilePosition{Line: commentArgs.line, Offset: 1}
+		createOpts.ThreadContext = &ado.ThreadContext{
+			FilePath:       inlineTarget.FilePath,
+			RightFileStart: position,
+			RightFileEnd:   position,
+		}
+		createOpts.PullRequestThreadContext = &ado.PullRequestThreadContext{
+			ChangeTrackingID: inlineTarget.ChangeTrackingID,
+			IterationContext: &ado.CommentIterationContext{
+				FirstComparingIteration:  inlineTarget.FirstComparingIteration,
+				SecondComparingIteration: inlineTarget.SecondComparingIteration,
+			},
+		}
+	}
+	thread, err := client.CreatePullRequestThread(ctx, createOpts)
 	if err != nil {
 		return err
 	}
@@ -260,6 +282,10 @@ func (r Runner) runADOPullRequestComment(args []string, stdout io.Writer) error 
 		return fmt.Errorf("Azure DevOps pull request thread response missing thread ID")
 	}
 	result := prThreadResult{PullRequestID: commentArgs.pullRequestID, ThreadID: thread.ID, Action: "commented"}
+	if commentArgs.inlineTarget() {
+		result.FilePath = inlineTarget.FilePath
+		result.Line = commentArgs.line
+	}
 	if len(thread.Comments) > 0 && thread.Comments[0].ID > 0 {
 		result.CommentID = thread.Comments[0].ID
 	}
@@ -390,6 +416,81 @@ func fetchPullRequestRepositoryID(ctx context.Context, fetcher ado.PullRequestFe
 		return "", fmt.Errorf("pull request %d response missing repository ID", pullRequestID)
 	}
 	return pr.Repository.ID, nil
+}
+
+type prInlineCommentTarget struct {
+	FilePath                 string
+	ChangeTrackingID         int
+	FirstComparingIteration  int
+	SecondComparingIteration int
+}
+
+func resolvePullRequestInlineCommentTarget(ctx context.Context, client ado.PullRequestMaintainer, repositoryID string, pullRequestID int, requestedPath string) (prInlineCommentTarget, error) {
+	iterations, err := client.ListPullRequestIterations(ctx, repositoryID, pullRequestID)
+	if err != nil {
+		return prInlineCommentTarget{}, err
+	}
+	latestIterationID := 0
+	for _, iteration := range iterations {
+		if iteration.ID > latestIterationID {
+			latestIterationID = iteration.ID
+		}
+	}
+	if latestIterationID <= 0 {
+		return prInlineCommentTarget{}, fmt.Errorf("pull request %d has no iterations for inline comment targeting", pullRequestID)
+	}
+	changes, err := client.ListPullRequestIterationChanges(ctx, ado.PullRequestIterationChangesOptions{
+		RepositoryID:  repositoryID,
+		PullRequestID: pullRequestID,
+		IterationID:   latestIterationID,
+		CompareTo:     0,
+	})
+	if err != nil {
+		return prInlineCommentTarget{}, err
+	}
+	requested := normalizePullRequestFilePath(requestedPath)
+	var matched *ado.PullRequestIterationChange
+	for i := range changes {
+		change := changes[i]
+		if normalizePullRequestFilePath(change.Item.Path) != requested {
+			continue
+		}
+		if matched != nil {
+			return prInlineCommentTarget{}, fmt.Errorf("multiple pull request changes match %q; cannot choose inline comment target", requestedPath)
+		}
+		matched = &change
+	}
+	if matched == nil {
+		return prInlineCommentTarget{}, fmt.Errorf("inline comments can only target supported changed files in the latest pull request version; %q was not found", requestedPath)
+	}
+	changeType := strings.ToLower(matched.ChangeType)
+	if strings.Contains(changeType, "delete") || strings.Contains(changeType, "rename") || matched.Item.Path == "" || matched.ChangeTrackingID <= 0 {
+		return prInlineCommentTarget{}, fmt.Errorf("inline comments can only target supported changed files in the latest pull request version; %q is unsupported", requestedPath)
+	}
+	return prInlineCommentTarget{
+		FilePath:                 matched.Item.Path,
+		ChangeTrackingID:         matched.ChangeTrackingID,
+		FirstComparingIteration:  latestIterationID,
+		SecondComparingIteration: latestIterationID,
+	}, nil
+}
+
+func normalizePullRequestFilePath(filePath string) string {
+	trimmed := strings.TrimSpace(filePath)
+	if trimmed == "" || strings.Contains(trimmed, "\\") {
+		return ""
+	}
+	parts := strings.Split(trimmed, "/")
+	for _, part := range parts {
+		if part == "." || part == ".." {
+			return ""
+		}
+	}
+	cleaned := path.Clean("/" + strings.TrimPrefix(trimmed, "/"))
+	if cleaned == "." {
+		return ""
+	}
+	return cleaned
 }
 
 func (r Runner) runADOPullRequestFetch(args []string, stdout io.Writer) error {
@@ -772,9 +873,15 @@ type prCommentArgs struct {
 	pullRequestID int
 	message       string
 	messageFile   string
+	file          string
+	line          int
 	profile       string
 	global        bool
 	json          bool
+}
+
+func (a prCommentArgs) inlineTarget() bool {
+	return a.file != "" && a.line > 0
 }
 
 type prThreadArgs struct {
@@ -791,6 +898,8 @@ type prThreadResult struct {
 	PullRequestID int    `json:"pullRequestId"`
 	ThreadID      int    `json:"threadId"`
 	CommentID     int    `json:"commentId,omitempty"`
+	FilePath      string `json:"filePath,omitempty"`
+	Line          int    `json:"line,omitempty"`
 	Status        string `json:"status,omitempty"`
 	Action        string `json:"action"`
 }
@@ -927,6 +1036,22 @@ func parsePRCommentArgs(args []string) (prCommentArgs, error) {
 			}
 			parsed.messageFile = args[i+1]
 			i++
+		case "--file":
+			if i+1 >= len(args) || strings.TrimSpace(args[i+1]) == "" || strings.HasPrefix(args[i+1], "-") {
+				return prCommentArgs{}, fmt.Errorf("--file requires a value")
+			}
+			parsed.file = args[i+1]
+			i++
+		case "--line":
+			if i+1 >= len(args) || args[i+1] == "" {
+				return prCommentArgs{}, fmt.Errorf("--line requires a value")
+			}
+			line, err := strconv.Atoi(args[i+1])
+			if err != nil || line <= 0 {
+				return prCommentArgs{}, fmt.Errorf("--line must be a positive integer")
+			}
+			parsed.line = line
+			i++
 		case "--profile":
 			if i+1 >= len(args) || args[i+1] == "" || strings.HasPrefix(args[i+1], "-") {
 				return prCommentArgs{}, fmt.Errorf("--profile requires a value")
@@ -945,6 +1070,9 @@ func parsePRCommentArgs(args []string) (prCommentArgs, error) {
 	hasFile := parsed.messageFile != ""
 	if hasMessage == hasFile {
 		return prCommentArgs{}, fmt.Errorf("exactly one of --message or --message-file is required")
+	}
+	if (parsed.file == "") != (parsed.line == 0) {
+		return prCommentArgs{}, fmt.Errorf("--file and --line must be provided together")
 	}
 	return parsed, nil
 }

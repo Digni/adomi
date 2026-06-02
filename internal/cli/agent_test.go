@@ -427,6 +427,8 @@ func requiredAdomiSkillContent() []string {
 		"adomi ado pr ensure --title <title>",
 		"adomi ado pr ensure --description-file <path>",
 		"adomi ado pr comment <pull-request-id> --message-file <path>",
+		"adomi ado pr comment <pull-request-id> --file <path> --line <line> --message-file <path>",
+		"latest changed PR file version",
 		"adomi ado pr reply <pull-request-id> --thread <thread-id>",
 		"adomi ado pr resolve <pull-request-id> --thread <thread-id>",
 		"adomi ado pr reopen <pull-request-id> --thread <thread-id>",

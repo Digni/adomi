@@ -258,9 +258,52 @@ func (c *Client) UpdatePullRequest(ctx context.Context, opts PullRequestUpdateOp
 	return &pr, nil
 }
 
+func (c *Client) ListPullRequestIterations(ctx context.Context, repositoryID string, pullRequestID int) ([]PullRequestIteration, error) {
+	if strings.TrimSpace(repositoryID) == "" {
+		return nil, fmt.Errorf("pull request iterations request requires repository ID")
+	}
+	var response PullRequestIterationsResponse
+	if err := c.doJSON(ctx, http.MethodGet, c.pullRequestIterationsURL(repositoryID, pullRequestID), nil, &response, "fetching Azure DevOps pull request iterations", "decoding Azure DevOps pull request iterations"); err != nil {
+		return nil, err
+	}
+	return response.Value, nil
+}
+
+func (c *Client) ListPullRequestIterationChanges(ctx context.Context, opts PullRequestIterationChangesOptions) ([]PullRequestIterationChange, error) {
+	if strings.TrimSpace(opts.RepositoryID) == "" {
+		return nil, fmt.Errorf("pull request iteration changes request requires repository ID")
+	}
+	top := opts.Top
+	if top <= 0 {
+		top = 2000
+	}
+	var all []PullRequestIterationChange
+	seenSkips := map[int]bool{}
+	for skip := 0; ; {
+		var response PullRequestIterationChangesResponse
+		if err := c.doJSON(ctx, http.MethodGet, c.pullRequestIterationChangesURL(opts.RepositoryID, opts.PullRequestID, opts.IterationID, opts.CompareTo, top, skip), nil, &response, "fetching Azure DevOps pull request iteration changes", "decoding Azure DevOps pull request iteration changes"); err != nil {
+			return nil, err
+		}
+		all = append(all, response.ChangeEntries...)
+		if response.NextSkip <= 0 || response.NextTop <= 0 {
+			break
+		}
+		if response.NextSkip <= skip || seenSkips[response.NextSkip] {
+			return nil, fmt.Errorf("Azure DevOps pull request iteration changes pagination did not advance from skip %d to %d", skip, response.NextSkip)
+		}
+		seenSkips[skip] = true
+		skip = response.NextSkip
+		top = response.NextTop
+	}
+	return all, nil
+}
+
 func (c *Client) CreatePullRequestThread(ctx context.Context, opts PullRequestThreadCreateOptions) (*PullRequestThread, error) {
 	if strings.TrimSpace(opts.RepositoryID) == "" {
 		return nil, fmt.Errorf("pull request thread create request requires repository ID")
+	}
+	if (opts.ThreadContext == nil) != (opts.PullRequestThreadContext == nil) {
+		return nil, fmt.Errorf("inline pull request thread create request requires both threadContext and pullRequestThreadContext")
 	}
 	body := map[string]any{
 		"comments": []map[string]any{{
@@ -269,6 +312,12 @@ func (c *Client) CreatePullRequestThread(ctx context.Context, opts PullRequestTh
 			"commentType":     "text",
 		}},
 		"status": "active",
+	}
+	if opts.ThreadContext != nil {
+		body["threadContext"] = opts.ThreadContext
+	}
+	if opts.PullRequestThreadContext != nil {
+		body["pullRequestThreadContext"] = opts.PullRequestThreadContext
 	}
 	var thread PullRequestThread
 	if err := c.doJSON(ctx, http.MethodPost, c.pullRequestThreadCollectionURL(opts.RepositoryID, opts.PullRequestID), body, &thread, "creating Azure DevOps pull request thread", "decoding Azure DevOps pull request thread create response"); err != nil {
@@ -425,6 +474,29 @@ func (c *Client) pullRequestRepoURL(repositoryID string, pullRequestID int) stri
 	u.Path = path.Join(segments...)
 	query := u.Query()
 	query.Set("api-version", c.config.APIVersion)
+	u.RawQuery = query.Encode()
+	return u.String()
+}
+
+func (c *Client) pullRequestIterationsURL(repositoryID string, pullRequestID int) string {
+	u := *c.baseURL
+	segments := []string{strings.TrimRight(u.Path, "/"), c.config.Project, "_apis", "git", "repositories", repositoryID, "pullrequests", strconv.Itoa(pullRequestID), "iterations"}
+	u.Path = path.Join(segments...)
+	query := u.Query()
+	query.Set("api-version", c.config.APIVersion)
+	u.RawQuery = query.Encode()
+	return u.String()
+}
+
+func (c *Client) pullRequestIterationChangesURL(repositoryID string, pullRequestID int, iterationID int, compareTo int, top int, skip int) string {
+	u := *c.baseURL
+	segments := []string{strings.TrimRight(u.Path, "/"), c.config.Project, "_apis", "git", "repositories", repositoryID, "pullrequests", strconv.Itoa(pullRequestID), "iterations", strconv.Itoa(iterationID), "changes"}
+	u.Path = path.Join(segments...)
+	query := u.Query()
+	query.Set("api-version", c.config.APIVersion)
+	query.Set("$compareTo", strconv.Itoa(compareTo))
+	query.Set("$top", strconv.Itoa(top))
+	query.Set("$skip", strconv.Itoa(skip))
 	u.RawQuery = query.Encode()
 	return u.String()
 }

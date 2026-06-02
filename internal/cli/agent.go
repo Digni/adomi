@@ -185,6 +185,7 @@ func generateSkillContent() string {
 		"- `adomi ado pr ensure --title <title>` creates the active pull request for the current repository branch when none exists, or updates title/description fields you explicitly provide on the existing active PR.",
 		"- `adomi ado pr ensure --description-file <path>` updates an existing PR description from a non-empty file; include `--target <branch>` or `--repository <name-or-id>` when inference is ambiguous.",
 		"- `adomi ado pr comment <pull-request-id> --message-file <path>` creates a new PR-level comment thread; `--message <text>` is available for short explicit comments. Plain stdout returns the created thread ID.",
+		"- `adomi ado pr comment <pull-request-id> --file <path> --line <line> --message-file <path>` creates a right-side single-line inline comment on the latest changed PR file version. Use `--message <text>` for short explicit inline comments. Deleted/left-side comments, ranges, offsets, suggestions, and manual iteration overrides are not supported.",
 		"- `adomi ado pr reply <pull-request-id> --thread <thread-id> --message-file <path>` replies to an existing review thread; `--message <text>` is available for short explicit replies.",
 		"- `adomi ado pr resolve <pull-request-id> --thread <thread-id>` marks a thread fixed.",
 		"- `adomi ado pr reopen <pull-request-id> --thread <thread-id>` marks a thread active again.",

@@ -2,9 +2,7 @@
 
 ## Purpose
 Define the public command layout and stream behavior for the `adomi` CLI.
-
 ## Requirements
-
 ### Requirement: Cobra-backed root command
 
 The system SHALL expose the `adomi` CLI through a Cobra command tree while preserving the programmatic `Run(args, stdin, stdout, stderr)` execution boundary.
@@ -95,11 +93,15 @@ The system SHALL preserve Azure DevOps-specific commands under `adomi ado`.
 
 #### Scenario: Pull request namespace help lists supported operations
 - **WHEN** the user requests help for `adomi ado pr`
-- **THEN** the help output lists the supported `fetch`, `ensure`, `reply`, `resolve`, and `reopen` operations
+- **THEN** the help output lists the supported `fetch`, `ensure`, `comment`, `reply`, `resolve`, and `reopen` operations
 
 #### Scenario: Pull request ensure command
 - **WHEN** the user runs `adomi ado pr ensure` with valid inferred repository context, valid configuration, and valid credentials
 - **THEN** the command creates or updates the active pull request for the resolved source and target branches
+
+#### Scenario: Pull request comment command
+- **WHEN** the user runs `adomi ado pr comment <pull-request-id>` with one valid message source, optional paired `--file <path> --line <line>` inline target flags, valid configuration, and valid credentials
+- **THEN** the command creates a new comment thread on the requested pull request, targeting the PR level when no inline target is provided and the latest changed file version when an inline target is provided
 
 #### Scenario: Pull request reply command
 - **WHEN** the user runs `adomi ado pr reply <pull-request-id> --thread <thread-id>` with one valid message source, valid configuration, and valid credentials
@@ -136,6 +138,10 @@ The system SHALL keep stdout reserved for successful command data and stderr res
 #### Scenario: Pull request ensure success stdout
 - **WHEN** `adomi ado pr ensure` succeeds without `--json`
 - **THEN** stdout contains only the pull request ID followed by a newline
+
+#### Scenario: Pull request comment success stdout
+- **WHEN** `adomi ado pr comment <pull-request-id>` succeeds without `--json`
+- **THEN** stdout contains only the created thread ID followed by a newline
 
 #### Scenario: Pull request reply success stdout
 - **WHEN** `adomi ado pr reply <pull-request-id> --thread <thread-id>` succeeds without `--json`
