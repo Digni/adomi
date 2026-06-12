@@ -2300,11 +2300,19 @@ func TestADOFetchWithRealWiringWritesContextAndPrintsOnlyPath(t *testing.T) {
 		}
 		switch r.URL.Path {
 		case "/MyProject/_apis/wit/workitems/12345":
-			fmt.Fprintf(w, `{"id":12345,"fields":{"System.WorkItemType":"Task","System.Title":"Task title"},"relations":[{"rel":"System.LinkTypes.Hierarchy-Forward","url":%q},{"rel":"AttachedFile","url":%q,"attributes":{"name":"note.txt"}}]}`, baseURL+"/MyProject/_apis/wit/workItems/12346", baseURL+"/_apis/wit/attachments/note")
+			fmt.Fprintf(w, `{"id":12345,"fields":{"System.WorkItemType":"Task","System.Title":"Task title"},"relations":[{"rel":"System.LinkTypes.Hierarchy-Reverse","url":%q},{"rel":"System.LinkTypes.Hierarchy-Forward","url":%q},{"rel":"AttachedFile","url":%q,"attributes":{"name":"note.txt"}}]}`, baseURL+"/MyProject/_apis/wit/workItems/12000", baseURL+"/MyProject/_apis/wit/workItems/12346", baseURL+"/_apis/wit/attachments/note")
+		case "/MyProject/_apis/wit/workitems/12000":
+			fmt.Fprintf(w, `{"id":12000,"fields":{"System.WorkItemType":"User Story","System.Title":"Parent story"},"relations":[{"rel":"System.LinkTypes.Hierarchy-Reverse","url":%q},{"rel":"AttachedFile","url":%q,"attributes":{"name":"parent-note.txt"}}]}`, baseURL+"/MyProject/_apis/wit/workItems/10000", baseURL+"/_apis/wit/attachments/parent-note")
+		case "/MyProject/_apis/wit/workitems/10000":
+			fmt.Fprintf(w, `{"id":10000,"fields":{"System.WorkItemType":"Epic","System.Title":"Grandparent epic"},"relations":[{"rel":"AttachedFile","url":%q,"attributes":{"name":"grandparent-note.txt"}}]}`, baseURL+"/_apis/wit/attachments/grandparent-note")
 		case "/MyProject/_apis/wit/workitems/12346":
 			fmt.Fprintf(w, `{"id":12346,"fields":{"System.WorkItemType":"Task","System.Title":"Child task"},"relations":[{"rel":"AttachedFile","url":%q,"attributes":{"name":"child-note.txt"}}]}`, baseURL+"/_apis/wit/attachments/child-note")
 		case "/_apis/wit/attachments/note":
 			fmt.Fprint(w, "attachment")
+		case "/_apis/wit/attachments/parent-note":
+			fmt.Fprint(w, "parent attachment")
+		case "/_apis/wit/attachments/grandparent-note":
+			fmt.Fprint(w, "grandparent attachment")
 		case "/_apis/wit/attachments/child-note":
 			fmt.Fprint(w, "child attachment")
 		default:
@@ -2356,13 +2364,86 @@ azureDevOps:
 	assertLocalFile(t, filepath.Join(outputDir, "index.json"))
 	assertLocalFile(t, filepath.Join(outputDir, "tree.json"))
 	assertLocalFile(t, filepath.Join(outputDir, "items", "12345.json"))
+	assertLocalFile(t, filepath.Join(outputDir, "items", "12000.json"))
+	assertLocalFile(t, filepath.Join(outputDir, "items", "10000.json"))
 	assertLocalFile(t, filepath.Join(outputDir, "items", "12346.json"))
 	assertLocalFile(t, filepath.Join(outputDir, "html", "12345.html"))
+	assertLocalFile(t, filepath.Join(outputDir, "html", "12000.html"))
+	assertLocalFile(t, filepath.Join(outputDir, "html", "10000.html"))
 	assertLocalFile(t, filepath.Join(outputDir, "html", "12346.html"))
 	assertLocalFile(t, filepath.Join(outputDir, "attachments", "12345", "note.txt"))
+	assertLocalFile(t, filepath.Join(outputDir, "attachments", "12000", "parent-note.txt"))
+	assertLocalFile(t, filepath.Join(outputDir, "attachments", "10000", "grandparent-note.txt"))
 	assertLocalFile(t, filepath.Join(outputDir, "attachments", "12346", "child-note.txt"))
+	assertFileContains(t, filepath.Join(outputDir, "index.json"), "12000")
+	assertFileContains(t, filepath.Join(outputDir, "index.json"), "10000")
 	assertFileContains(t, filepath.Join(outputDir, "index.json"), "12346")
+	assertFileContains(t, filepath.Join(outputDir, "tree.json"), "Parent story")
+	assertFileContains(t, filepath.Join(outputDir, "tree.json"), "Grandparent epic")
 	assertFileContains(t, filepath.Join(outputDir, "tree.json"), "Child task")
+}
+
+func TestADOFetchAttachmentDownloadFailureLeavesStdoutEmpty(t *testing.T) {
+	repoRoot := t.TempDir()
+	subdir := filepath.Join(repoRoot, "nested")
+	homeDir := t.TempDir()
+	if err := os.Mkdir(filepath.Join(repoRoot, ".git"), 0o755); err != nil {
+		t.Fatalf("creating .git: %v", err)
+	}
+	if err := os.MkdirAll(subdir, 0o755); err != nil {
+		t.Fatalf("creating nested dir: %v", err)
+	}
+
+	var baseURL string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") == "" {
+			t.Fatal("missing Authorization header")
+		}
+		switch r.URL.Path {
+		case "/MyProject/_apis/wit/workitems/12345":
+			fmt.Fprintf(w, `{"id":12345,"fields":{"System.WorkItemType":"Task","System.Title":"Task title"},"relations":[{"rel":"AttachedFile","url":%q,"attributes":{"name":"note.txt"}}]}`, baseURL+"/_apis/wit/attachments/note")
+		case "/_apis/wit/attachments/note":
+			http.Error(w, "attachment failed", http.StatusInternalServerError)
+		default:
+			t.Fatalf("unexpected path %q", r.URL.Path)
+		}
+	}))
+	t.Cleanup(server.Close)
+	baseURL = server.URL
+
+	configPath := filepath.Join(repoRoot, ".adomi", "config.yaml")
+	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
+		t.Fatalf("creating config dir: %v", err)
+	}
+	if err := os.WriteFile(configPath, []byte(`
+azureDevOps:
+  defaultProfile: company-cloud
+  profiles:
+    company-cloud:
+      patRef: shared-ado
+      baseUrl: `+server.URL+`
+      project: MyProject
+`), 0o644); err != nil {
+		t.Fatalf("writing config: %v", err)
+	}
+
+	runner := Runner{deps: Dependencies{
+		PATStore:    &fakePATStore{values: map[string]string{"shared-ado": "secret-pat"}},
+		Getwd:       func() (string, error) { return subdir, nil },
+		UserHomeDir: func() (string, error) { return homeDir, nil },
+	}}
+	var stdout bytes.Buffer
+
+	err := runner.Run([]string{"ado", "fetch", "12345"}, strings.NewReader(""), &stdout, &bytes.Buffer{})
+	if err == nil {
+		t.Fatal("Run error = nil, want attachment download error")
+	}
+	if !strings.Contains(err.Error(), "downloading attachment") {
+		t.Fatalf("error = %q, want attachment download context", err.Error())
+	}
+	if stdout.String() != "" {
+		t.Fatalf("stdout = %q, want empty", stdout.String())
+	}
 }
 
 type fakeADOClient struct{}

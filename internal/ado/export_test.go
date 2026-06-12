@@ -3,8 +3,10 @@ package ado
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -82,8 +84,17 @@ func TestExportContextWritesIndexTreeItemsAndHTML(t *testing.T) {
 	if got := index.WorkItems[0].HTMLPath; got != "html/12345.html" {
 		t.Fatalf("html path = %q, want relative HTML path", got)
 	}
-	if got := index.WorkItems[0].AttachmentsPath; got != "attachments/12345" {
-		t.Fatalf("attachments path = %q, want relative attachments path", got)
+	if len(index.WorkItems) != 2 {
+		t.Fatalf("index work items len = %d, want 2", len(index.WorkItems))
+	}
+	for _, item := range index.WorkItems {
+		want := "attachments/" + strconv.Itoa(item.ID)
+		if item.AttachmentsPath != want {
+			t.Fatalf("attachments path for %d = %q, want %q", item.ID, item.AttachmentsPath, want)
+		}
+		if strings.HasSuffix(item.AttachmentsPath, "/") {
+			t.Fatalf("attachments path for %d = %q, want no trailing slash", item.ID, item.AttachmentsPath)
+		}
 	}
 
 	html := readFile(t, filepath.Join(outputDir, "html", "12345.html"))
@@ -121,6 +132,62 @@ func TestExportContextRemovesStaleFilesFromPreviousRun(t *testing.T) {
 	if _, err := os.Stat(stalePath); !os.IsNotExist(err) {
 		t.Fatalf("stale file stat error = %v, want not exist", err)
 	}
+}
+
+func TestExportContextStopsBeforeFinalArtifactsWhenAttachmentDownloadFails(t *testing.T) {
+	repoRoot := t.TempDir()
+	tree := &WorkItemTree{
+		RootID: 12345,
+		WorkItems: []WorkItem{
+			{
+				ID: 12345,
+				Relations: []Relation{{
+					Rel:        attachmentRelationType,
+					URL:        "https://example.test/first",
+					Attributes: map[string]any{"name": "first.txt"},
+				}},
+			},
+			{
+				ID: 12346,
+				Relations: []Relation{
+					{Rel: attachmentRelationType, URL: "https://example.test/second", Attributes: map[string]any{"name": "second.txt"}},
+					{Rel: attachmentRelationType, URL: "https://example.test/third", Attributes: map[string]any{"name": "third.txt"}},
+				},
+			},
+		},
+	}
+	downloader := fakeDownloader{
+		data: map[string][]byte{
+			"https://example.test/first":  []byte("first"),
+			"https://example.test/second": []byte("second"),
+		},
+		errs: map[string]error{"https://example.test/third": errors.New("boom")},
+	}
+
+	outputDir, err := ExportContext(context.Background(), downloader, ExportOptions{
+		RepoRoot: repoRoot,
+		Profile:  "company-cloud",
+		Project:  "MyProject",
+	}, tree)
+	if err == nil {
+		t.Fatal("ExportContext error = nil, want attachment download error")
+	}
+	if !strings.Contains(err.Error(), "downloading attachment") {
+		t.Fatalf("error = %q, want attachment download context", err.Error())
+	}
+	if outputDir != "" {
+		t.Fatalf("output dir = %q, want empty on failed export", outputDir)
+	}
+
+	failedOutputDir := OutputPath(repoRoot, "company-cloud", "MyProject", 12345)
+	assertExists(t, filepath.Join(failedOutputDir, "attachments", "12345", "first.txt"))
+	assertExists(t, filepath.Join(failedOutputDir, "attachments", "12346", "second.txt"))
+	assertNotExists(t, filepath.Join(failedOutputDir, "items", "12345.json"))
+	assertNotExists(t, filepath.Join(failedOutputDir, "items", "12346.json"))
+	assertNotExists(t, filepath.Join(failedOutputDir, "html", "12345.html"))
+	assertNotExists(t, filepath.Join(failedOutputDir, "html", "12346.html"))
+	assertNotExists(t, filepath.Join(failedOutputDir, "tree.json"))
+	assertNotExists(t, filepath.Join(failedOutputDir, "index.json"))
 }
 
 func TestExportContextRejectsNilTree(t *testing.T) {
@@ -187,6 +254,13 @@ func assertExists(t *testing.T, path string) {
 	t.Helper()
 	if _, err := os.Stat(path); err != nil {
 		t.Fatalf("expected %s to exist: %v", path, err)
+	}
+}
+
+func assertNotExists(t *testing.T, path string) {
+	t.Helper()
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("%s stat error = %v, want not exist", path, err)
 	}
 }
 
