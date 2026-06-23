@@ -77,6 +77,60 @@ func (r Runner) runADOFetch(args []string, stdout io.Writer) error {
 	return nil
 }
 
+func (r Runner) runADOWorkItem(args []string, stdout io.Writer) error {
+	if len(args) == 0 {
+		return fmt.Errorf("usage: adomi ado work-item <command>")
+	}
+	switch args[0] {
+	case "comment":
+		return r.runADOWorkItemComment(args[1:], stdout)
+	default:
+		return fmt.Errorf("unsupported work item command %q", args[0])
+	}
+}
+
+func (r Runner) runADOWorkItemComment(args []string, stdout io.Writer) error {
+	commentArgs, err := parseWorkItemCommentArgs(args)
+	if err != nil {
+		return err
+	}
+
+	content := commentArgs.message
+	if commentArgs.messageFile != "" {
+		var provided bool
+		content, provided, err = readOptionalNonBlankFile("--message-file", commentArgs.messageFile)
+		if err != nil {
+			return err
+		}
+		if !provided {
+			return fmt.Errorf("--message-file is required")
+		}
+	}
+
+	client, err := r.newADOMaintenanceClient(commentArgs.profile, commentArgs.global)
+	if err != nil {
+		return err
+	}
+	ctx := context.Background()
+	comment, err := client.CreateWorkItemComment(ctx, ado.WorkItemCommentCreateOptions{WorkItemID: commentArgs.workItemID, Text: content})
+	if err != nil {
+		return err
+	}
+	commentID := comment.CreatedID()
+	if commentID <= 0 {
+		return fmt.Errorf("Azure DevOps work item comment response missing comment ID")
+	}
+	if comment.WorkItemID > 0 && comment.WorkItemID != commentArgs.workItemID {
+		return fmt.Errorf("Azure DevOps work item comment response work item ID %d does not match requested ID %d", comment.WorkItemID, commentArgs.workItemID)
+	}
+	result := workItemCommentResult{WorkItemID: commentArgs.workItemID, CommentID: commentID, Action: "commented", URL: comment.URL}
+	if commentArgs.json {
+		return writeJSONLine(stdout, result)
+	}
+	fmt.Fprintln(stdout, commentID)
+	return nil
+}
+
 func (r Runner) runADOPullRequest(args []string, stdout io.Writer) error {
 	if len(args) > 0 {
 		switch args[0] {
@@ -371,7 +425,7 @@ func (r Runner) runADOPullRequestThreadStatus(args []string, stdout io.Writer, c
 	return nil
 }
 
-func (r Runner) newADOPRMaintenanceClient(requestedProfile string, global bool) (ADOClient, error) {
+func (r Runner) newADOMaintenanceClient(requestedProfile string, global bool) (ADOClient, error) {
 	deps := r.dependencies()
 	repoRoot, homeDir, err := resolveLocations(deps)
 	if err != nil {
@@ -405,6 +459,10 @@ func (r Runner) newADOPRMaintenanceClient(requestedProfile string, global bool) 
 		return nil, err
 	}
 	return client, nil
+}
+
+func (r Runner) newADOPRMaintenanceClient(requestedProfile string, global bool) (ADOClient, error) {
+	return r.newADOMaintenanceClient(requestedProfile, global)
 }
 
 func fetchPullRequestRepositoryID(ctx context.Context, fetcher ado.PullRequestFetcher, pullRequestID int) (string, error) {
@@ -852,6 +910,22 @@ func parseFetchArgs(args []string) (fetchArgs, error) {
 	return fetchArgs{workItemID: workItemID, profile: profile, global: global}, nil
 }
 
+type workItemCommentArgs struct {
+	workItemID  int
+	message     string
+	messageFile string
+	profile     string
+	global      bool
+	json        bool
+}
+
+type workItemCommentResult struct {
+	WorkItemID int    `json:"workItemId"`
+	CommentID  int    `json:"commentId"`
+	Action     string `json:"action"`
+	URL        string `json:"url,omitempty"`
+}
+
 type prArgs struct {
 	pullRequestID int
 	profile       string
@@ -1010,6 +1084,90 @@ func resolvePREnsureRefs(deps Dependencies, repoRoot, remoteName string, args pr
 	return refs, nil
 }
 
+func parseWorkItemCommentArgs(args []string) (workItemCommentArgs, error) {
+	if len(args) == 0 {
+		return workItemCommentArgs{}, fmt.Errorf("usage: adomi ado comment <work-item-id> (--message <text> | --message-file <path>) [--profile <profile-name>] [--global] [--json]")
+	}
+	workItemID, err := strconv.Atoi(args[0])
+	if err != nil || workItemID <= 0 {
+		return workItemCommentArgs{}, fmt.Errorf("work item ID must be a positive integer")
+	}
+	parsed := workItemCommentArgs{workItemID: workItemID}
+	for i := 1; i < len(args); i++ {
+		switch args[i] {
+		case "--message":
+			value, err := parseWorkItemInlineMessageFlag(args, i)
+			if err != nil {
+				return workItemCommentArgs{}, err
+			}
+			parsed.message = value
+			i++
+		case "--message-file":
+			value, err := parseFlagValue("--message-file", args, i)
+			if err != nil {
+				return workItemCommentArgs{}, err
+			}
+			parsed.messageFile = value
+			i++
+		case "--profile":
+			value, err := parseFlagValue("--profile", args, i)
+			if err != nil {
+				return workItemCommentArgs{}, err
+			}
+			parsed.profile = value
+			i++
+		case "--global":
+			parsed.global = true
+		case "--json":
+			parsed.json = true
+		default:
+			return workItemCommentArgs{}, fmt.Errorf("unknown argument %q", args[i])
+		}
+	}
+	if err := validateSingleMessageSource(parsed.message, parsed.messageFile); err != nil {
+		return workItemCommentArgs{}, err
+	}
+	return parsed, nil
+}
+
+func parseFlagValue(flagName string, args []string, index int) (string, error) {
+	if index+1 >= len(args) || args[index+1] == "" || strings.HasPrefix(args[index+1], "-") {
+		return "", fmt.Errorf("%s requires a value", flagName)
+	}
+	return args[index+1], nil
+}
+
+func parseWorkItemInlineMessageFlag(args []string, index int) (string, error) {
+	if index+1 >= len(args) || args[index+1] == "" {
+		return "", fmt.Errorf("--message requires a value")
+	}
+	value := args[index+1]
+	if strings.TrimSpace(value) == "" {
+		return "", fmt.Errorf("--message cannot be empty")
+	}
+	return value, nil
+}
+
+func parseInlineMessageFlag(args []string, index int) (string, error) {
+	value, err := parseFlagValue("--message", args, index)
+	if err != nil {
+		return "", err
+	}
+	if strings.TrimSpace(value) == "" {
+		return "", fmt.Errorf("--message cannot be empty")
+	}
+	return value, nil
+}
+
+func validateSingleMessageSource(message, messageFile string) error {
+	hasMessage := message != ""
+	hasFile := messageFile != ""
+	if hasMessage == hasFile {
+		return fmt.Errorf("exactly one of --message or --message-file is required")
+	}
+	return nil
+}
+
 func parsePRCommentArgs(args []string) (prCommentArgs, error) {
 	if len(args) == 0 {
 		return prCommentArgs{}, fmt.Errorf("usage: adomi ado pr comment <pull-request-id> (--message <text> | --message-file <path>)")
@@ -1022,19 +1180,18 @@ func parsePRCommentArgs(args []string) (prCommentArgs, error) {
 	for i := 1; i < len(args); i++ {
 		switch args[i] {
 		case "--message":
-			if i+1 >= len(args) || args[i+1] == "" || strings.HasPrefix(args[i+1], "-") {
-				return prCommentArgs{}, fmt.Errorf("--message requires a value")
+			value, err := parseInlineMessageFlag(args, i)
+			if err != nil {
+				return prCommentArgs{}, err
 			}
-			if strings.TrimSpace(args[i+1]) == "" {
-				return prCommentArgs{}, fmt.Errorf("--message cannot be empty")
-			}
-			parsed.message = args[i+1]
+			parsed.message = value
 			i++
 		case "--message-file":
-			if i+1 >= len(args) || args[i+1] == "" || strings.HasPrefix(args[i+1], "-") {
-				return prCommentArgs{}, fmt.Errorf("--message-file requires a value")
+			value, err := parseFlagValue("--message-file", args, i)
+			if err != nil {
+				return prCommentArgs{}, err
 			}
-			parsed.messageFile = args[i+1]
+			parsed.messageFile = value
 			i++
 		case "--file":
 			if i+1 >= len(args) || strings.TrimSpace(args[i+1]) == "" || strings.HasPrefix(args[i+1], "-") {
@@ -1066,10 +1223,8 @@ func parsePRCommentArgs(args []string) (prCommentArgs, error) {
 			return prCommentArgs{}, fmt.Errorf("unknown argument %q", args[i])
 		}
 	}
-	hasMessage := parsed.message != ""
-	hasFile := parsed.messageFile != ""
-	if hasMessage == hasFile {
-		return prCommentArgs{}, fmt.Errorf("exactly one of --message or --message-file is required")
+	if err := validateSingleMessageSource(parsed.message, parsed.messageFile); err != nil {
+		return prCommentArgs{}, err
 	}
 	if (parsed.file == "") != (parsed.line == 0) {
 		return prCommentArgs{}, fmt.Errorf("--file and --line must be provided together")
@@ -1104,22 +1259,21 @@ func parsePRThreadArgs(command string, args []string, requireMessage bool) (prTh
 			if !requireMessage {
 				return prThreadArgs{}, fmt.Errorf("unknown argument %q", args[i])
 			}
-			if i+1 >= len(args) || args[i+1] == "" || strings.HasPrefix(args[i+1], "-") {
-				return prThreadArgs{}, fmt.Errorf("--message requires a value")
+			value, err := parseInlineMessageFlag(args, i)
+			if err != nil {
+				return prThreadArgs{}, err
 			}
-			if strings.TrimSpace(args[i+1]) == "" {
-				return prThreadArgs{}, fmt.Errorf("--message cannot be empty")
-			}
-			parsed.message = args[i+1]
+			parsed.message = value
 			i++
 		case "--message-file":
 			if !requireMessage {
 				return prThreadArgs{}, fmt.Errorf("unknown argument %q", args[i])
 			}
-			if i+1 >= len(args) || args[i+1] == "" || strings.HasPrefix(args[i+1], "-") {
-				return prThreadArgs{}, fmt.Errorf("--message-file requires a value")
+			value, err := parseFlagValue("--message-file", args, i)
+			if err != nil {
+				return prThreadArgs{}, err
 			}
-			parsed.messageFile = args[i+1]
+			parsed.messageFile = value
 			i++
 		case "--profile":
 			if i+1 >= len(args) || args[i+1] == "" || strings.HasPrefix(args[i+1], "-") {
@@ -1139,10 +1293,8 @@ func parsePRThreadArgs(command string, args []string, requireMessage bool) (prTh
 		return prThreadArgs{}, fmt.Errorf("--thread is required")
 	}
 	if requireMessage {
-		hasMessage := parsed.message != ""
-		hasFile := parsed.messageFile != ""
-		if hasMessage == hasFile {
-			return prThreadArgs{}, fmt.Errorf("exactly one of --message or --message-file is required")
+		if err := validateSingleMessageSource(parsed.message, parsed.messageFile); err != nil {
+			return prThreadArgs{}, err
 		}
 	}
 	return parsed, nil

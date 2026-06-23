@@ -34,6 +34,7 @@ type PATStore interface {
 
 type ADOClient interface {
 	ado.WorkItemFetcher
+	ado.WorkItemMaintainer
 	ado.AttachmentDownloader
 	ado.PullRequestFetcher
 	ado.PullRequestMaintainer
@@ -121,6 +122,8 @@ func (r Runner) newADOCommand(stdin io.Reader, stdout, stderr io.Writer) *cobra.
 	}
 	adoCmd.AddCommand(
 		r.newADOFetchCommand(stdout),
+		r.newADOWorkItemCommentCommand(stdout),
+		r.newADOWorkItemCommand(stdout),
 		r.newADOPullRequestCommand(stdout),
 		r.newADOLoginCommand(stdin, stderr),
 		r.newADOLogoutCommand(),
@@ -137,6 +140,37 @@ func (r Runner) newADOFetchCommand(stdout io.Writer) *cobra.Command {
 		DisableFlagParsing: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return r.runADOFetch(args, stdout)
+		},
+	}
+}
+
+func (r Runner) newADOWorkItemCommentCommand(stdout io.Writer) *cobra.Command {
+	return &cobra.Command{
+		Use:                "comment <work-item-id> (--message <text> | --message-file <path>) [--profile <profile-name>] [--global] [--json]",
+		Short:              "Add a comment to an Azure DevOps work item",
+		DisableFlagParsing: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if len(args) > 0 && (args[0] == "--help" || args[0] == "-h") {
+				_ = cmd.Help()
+				return nil
+			}
+			return r.runADOWorkItemComment(args, stdout)
+		},
+	}
+}
+
+func (r Runner) newADOWorkItemCommand(stdout io.Writer) *cobra.Command {
+	return &cobra.Command{
+		Use:                "work-item comment",
+		Short:              "Manage Azure DevOps work item maintenance",
+		Long:               "Manage Azure DevOps work item maintenance. Supported operations: comment.",
+		DisableFlagParsing: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if len(args) > 0 && (args[0] == "--help" || args[0] == "-h") {
+				_ = cmd.Help()
+				return nil
+			}
+			return r.runADOWorkItem(args, stdout)
 		},
 	}
 }

@@ -12,6 +12,10 @@ type WorkItemFetcher interface {
 	FetchWorkItem(ctx context.Context, id int) (*WorkItem, error)
 }
 
+type WorkItemMaintainer interface {
+	CreateWorkItemComment(ctx context.Context, opts WorkItemCommentCreateOptions) (*WorkItemComment, error)
+}
+
 type WorkItemTree struct {
 	RootID    int        `json:"rootWorkItemId"`
 	EpicID    int        `json:"epicWorkItemId"`

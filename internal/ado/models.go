@@ -13,6 +13,25 @@ type WorkItem struct {
 	Relations []Relation     `json:"relations,omitempty"`
 }
 
+type WorkItemCommentCreateOptions struct {
+	WorkItemID int
+	Text       string
+}
+
+type WorkItemComment struct {
+	ID         int    `json:"id,omitempty"`
+	CommentID  int    `json:"commentId,omitempty"`
+	WorkItemID int    `json:"workItemId,omitempty"`
+	URL        string `json:"url,omitempty"`
+}
+
+func (c WorkItemComment) CreatedID() int {
+	if c.ID > 0 {
+		return c.ID
+	}
+	return c.CommentID
+}
+
 type Relation struct {
 	Rel        string         `json:"rel"`
 	URL        string         `json:"url"`

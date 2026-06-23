@@ -71,11 +71,14 @@ The user home directory may only be used as a fallback config location.
 
 ## Commands
 
-Work item context and credentials:
+Work item context, comments, and credentials:
 
 ```bash
 adomi ado fetch <work-item-id>
 adomi ado fetch <work-item-id> --profile <profile-name>
+adomi ado comment <work-item-id> --message <text>
+adomi ado comment <work-item-id> --message-file <path>
+adomi ado work-item comment <work-item-id> --message-file <path> # namespace alias
 adomi ado login --profile <profile-name>
 adomi ado logout --profile <profile-name>
 adomi ado profiles list
@@ -96,6 +99,8 @@ adomi ado pr reply <pull-request-id> --thread <thread-id> --message-file <path>
 adomi ado pr resolve <pull-request-id> --thread <thread-id>
 adomi ado pr reopen <pull-request-id> --thread <thread-id>
 ```
+
+Work item comment maintenance is intentionally narrow: `adomi ado comment <work-item-id>` and the `adomi ado work-item comment <work-item-id>` alias add a text-only comment from exactly one message source (`--message` or `--message-file`). Plain stdout returns only the created work item comment ID; `--json` returns one compact JSON object. No work item field updates, state transitions, assignment changes, relation edits, attachment uploads, comment updates/deletions, or reaction management are supported.
 
 `adomi ado pr ensure` runs inside the current Git repository. It infers the Azure DevOps repository from matching git remotes, the source branch from the current branch, and the target branch from the selected remote default branch when possible. Use `--repository <name-or-id>`, `--source <branch>`, or `--target <branch>` when inference is ambiguous or unavailable.
 
@@ -308,7 +313,7 @@ Azure DevOps PAT uses Basic Auth with an empty username:
 req.SetBasicAuth("", pat)
 ```
 
-Read-only context fetch commands require credentials that can read the requested work items or pull requests. PR maintenance commands require credentials with appropriate PR/thread write permissions, such as code write permission for creating/updating PRs and thread/comment write permission for review thread maintenance. Never print, log, echo, commit, or otherwise expose PAT values.
+Read-only context fetch commands require credentials that can read the requested work items or pull requests. Work item comment commands require work item write permission (the OAuth-equivalent `vso.work_write` scope). PR maintenance commands require credentials with appropriate PR/thread write permissions, such as code write permission for creating/updating PRs and thread/comment write permission for review thread maintenance. Never print, log, echo, commit, or otherwise expose PAT values.
 
 ---
 
@@ -367,6 +372,17 @@ Build the URL as:
 ```text
 {baseUrl}/{project}/_apis/wit/workitems/{id}
 ```
+
+Create a work item comment with the documented preview API:
+
+```http
+POST {baseUrl}/{project}/_apis/wit/workitems/{workItemId}/comments?api-version=7.0-preview.3
+Content-Type: application/json
+
+{ "text": "..." }
+```
+
+The response may identify the created comment as either `id` or `commentId`; normalize either positive value for stdout and JSON output.
 
 ---
 
@@ -474,6 +490,8 @@ Example:
 /path/to/repo/.adomi/context/work-items/12345
 ```
 
+Successful work item comment commands (`adomi ado comment` and `adomi ado work-item comment`) keep stdout data-only: plain output prints the created work item comment ID and `--json` prints one compact JSON object.
+
 Successful PR maintenance commands keep stdout data-only: `ensure` prints the PR ID, `comment` prints the created thread ID, `reply` prints the created comment ID, `resolve`/`reopen` print the thread ID, and `--json` prints one compact JSON object. Errors, prompts, diagnostics, validation failures, and Azure DevOps/network failures should go to stderr and leave stdout empty.
 
 This should work:
@@ -543,7 +561,7 @@ Do not implement:
 
 - Full Azure DevOps WIQL search.
 - Bidirectional sync.
-- Mutation/update of work items.
+- Work item field/state/relation mutation beyond text-only comment creation.
 - Rich HTML rendering.
 - Background daemon.
 - Agent-specific prompt generation.

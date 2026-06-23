@@ -14,7 +14,10 @@ import (
 	"time"
 )
 
-const maxAttachmentBytes int64 = 64 * 1024 * 1024
+const (
+	maxAttachmentBytes                int64 = 64 * 1024 * 1024
+	workItemCommentsPreviewAPIVersion       = "7.0-preview.3"
+)
 
 type ClientConfig struct {
 	BaseURL    string
@@ -97,6 +100,25 @@ func (c *Client) FetchWorkItem(ctx context.Context, id int) (*WorkItem, error) {
 		return nil, fmt.Errorf("Azure DevOps work item response ID %d does not match requested ID %d", item.ID, id)
 	}
 	return &item, nil
+}
+
+func (c *Client) CreateWorkItemComment(ctx context.Context, opts WorkItemCommentCreateOptions) (*WorkItemComment, error) {
+	if opts.WorkItemID <= 0 {
+		return nil, fmt.Errorf("work item comment request requires positive work item ID")
+	}
+	body := map[string]any{"text": opts.Text}
+	var comment WorkItemComment
+	if err := c.doJSON(ctx, http.MethodPost, c.workItemCommentsURL(opts.WorkItemID), body, &comment, "creating Azure DevOps work item comment", "decoding Azure DevOps work item comment"); err != nil {
+		return nil, err
+	}
+	createdID := comment.CreatedID()
+	if createdID <= 0 {
+		return nil, fmt.Errorf("Azure DevOps work item comment response missing comment ID")
+	}
+	if comment.WorkItemID > 0 && comment.WorkItemID != opts.WorkItemID {
+		return nil, fmt.Errorf("Azure DevOps work item comment response work item ID %d does not match requested ID %d", comment.WorkItemID, opts.WorkItemID)
+	}
+	return &comment, nil
 }
 
 func (c *Client) FetchPullRequest(ctx context.Context, id int) (*PullRequest, error) {
@@ -386,7 +408,15 @@ func (c *Client) doJSON(ctx context.Context, method, requestURL string, body any
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
 		return responseError(action, 0, resp)
 	}
-	if err := json.NewDecoder(resp.Body).Decode(target); err != nil {
+	decoder := json.NewDecoder(resp.Body)
+	if err := decoder.Decode(target); err != nil {
+		return fmt.Errorf("%s: %w", decodeAction, err)
+	}
+	var extra any
+	if err := decoder.Decode(&extra); err != io.EOF {
+		if err == nil {
+			return fmt.Errorf("%s: response body contains multiple JSON values", decodeAction)
+		}
 		return fmt.Errorf("%s: %w", decodeAction, err)
 	}
 	return nil
@@ -440,6 +470,16 @@ func (c *Client) workItemURL(id int) string {
 	query := u.Query()
 	query.Set("$expand", "all")
 	query.Set("api-version", c.config.APIVersion)
+	u.RawQuery = query.Encode()
+	return u.String()
+}
+
+func (c *Client) workItemCommentsURL(id int) string {
+	u := *c.baseURL
+	segments := []string{strings.TrimRight(u.Path, "/"), c.config.Project, "_apis", "wit", "workitems", strconv.Itoa(id), "comments"}
+	u.Path = path.Join(segments...)
+	query := u.Query()
+	query.Set("api-version", workItemCommentsPreviewAPIVersion)
 	u.RawQuery = query.Encode()
 	return u.String()
 }
