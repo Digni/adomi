@@ -104,8 +104,12 @@ func (r Runner) newConfigInitCommand(stdout io.Writer) *cobra.Command {
 	return &cobra.Command{
 		Use:                "init [--global]",
 		Short:              "Create an adomi configuration template",
+		Long:               configInitHelp,
 		DisableFlagParsing: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if isHelpRequest(args) {
+				return writeCommandHelp(cmd, configInitHelp)
+			}
 			return r.runADOConfigInit(args, stdout)
 		},
 	}
@@ -137,8 +141,12 @@ func (r Runner) newADOFetchCommand(stdout io.Writer) *cobra.Command {
 	return &cobra.Command{
 		Use:                "fetch <work-item-id> [--profile <profile-name>] [--global]",
 		Short:              "Fetch Azure DevOps work item context",
+		Long:               adoFetchHelp,
 		DisableFlagParsing: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if isHelpRequest(args) {
+				return writeCommandHelp(cmd, adoFetchHelp)
+			}
 			return r.runADOFetch(args, stdout)
 		},
 	}
@@ -148,11 +156,11 @@ func (r Runner) newADOWorkItemCommentCommand(stdout io.Writer) *cobra.Command {
 	return &cobra.Command{
 		Use:                "comment <work-item-id> (--message <text> | --message-file <path>) [--profile <profile-name>] [--global] [--json]",
 		Short:              "Add a comment to an Azure DevOps work item",
+		Long:               adoWorkItemCommentHelp,
 		DisableFlagParsing: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if len(args) > 0 && (args[0] == "--help" || args[0] == "-h") {
-				_ = cmd.Help()
-				return nil
+			if isHelpRequest(args) {
+				return writeCommandHelp(cmd, adoWorkItemCommentHelp)
 			}
 			return r.runADOWorkItemComment(args, stdout)
 		},
@@ -163,12 +171,11 @@ func (r Runner) newADOWorkItemCommand(stdout io.Writer) *cobra.Command {
 	return &cobra.Command{
 		Use:                "work-item comment",
 		Short:              "Manage Azure DevOps work item maintenance",
-		Long:               "Manage Azure DevOps work item maintenance. Supported operations: comment.",
+		Long:               adoWorkItemNamespaceHelp,
 		DisableFlagParsing: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if len(args) > 0 && (args[0] == "--help" || args[0] == "-h") {
-				_ = cmd.Help()
-				return nil
+			if isHelpRequest(args) {
+				return writeCommandHelp(cmd, adoWorkItemNamespaceHelp)
 			}
 			return r.runADOWorkItem(args, stdout)
 		},
@@ -184,9 +191,12 @@ func (r Runner) newADOPullRequestCommand(stdout io.Writer) *cobra.Command {
 			"The compatibility form `adomi ado pr <pull-request-id>` behaves like `adomi ado pr fetch <pull-request-id>`.",
 		DisableFlagParsing: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if len(args) > 0 && (args[0] == "--help" || args[0] == "-h") {
+			if len(args) > 0 && isHelpToken(args[0]) {
 				_ = cmd.Help()
 				return nil
+			}
+			if helpText, ok := prOperationHelp(args); ok {
+				return writeCommandHelp(cmd, helpText)
 			}
 			return r.runADOPullRequest(args, stdout)
 		},
@@ -197,8 +207,12 @@ func (r Runner) newADOLoginCommand(stdin io.Reader, stderr io.Writer) *cobra.Com
 	return &cobra.Command{
 		Use:                "login (--profile <profile-name> | --pat-ref <ref>) [--global]",
 		Short:              "Store an Azure DevOps PAT",
+		Long:               adoLoginHelp,
 		DisableFlagParsing: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if isHelpRequest(args) {
+				return writeCommandHelp(cmd, adoLoginHelp)
+			}
 			return r.runADOLogin(args, stdin, stderr)
 		},
 	}
@@ -208,8 +222,12 @@ func (r Runner) newADOLogoutCommand() *cobra.Command {
 	return &cobra.Command{
 		Use:                "logout (--profile <profile-name> | --pat-ref <ref>) [--global]",
 		Short:              "Delete an Azure DevOps PAT",
+		Long:               adoLogoutHelp,
 		DisableFlagParsing: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if isHelpRequest(args) {
+				return writeCommandHelp(cmd, adoLogoutHelp)
+			}
 			return r.runADOLogout(args)
 		},
 	}
@@ -223,8 +241,12 @@ func (r Runner) newADOProfilesCommand(stdout io.Writer) *cobra.Command {
 	profilesCmd.AddCommand(&cobra.Command{
 		Use:                "list [--global]",
 		Short:              "List configured Azure DevOps profiles",
+		Long:               adoProfilesListHelp,
 		DisableFlagParsing: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if isHelpRequest(args) {
+				return writeCommandHelp(cmd, adoProfilesListHelp)
+			}
 			return r.runADOProfilesList(args, stdout)
 		},
 	})
@@ -239,6 +261,283 @@ func (r Runner) newADOConfigAliasCommand(stdout io.Writer) *cobra.Command {
 	configCmd.AddCommand(r.newConfigInitCommand(stdout))
 	return configCmd
 }
+
+func isHelpToken(arg string) bool {
+	return arg == "--help" || arg == "-h"
+}
+
+func isHelpRequest(args []string) bool {
+	for _, arg := range args {
+		if isHelpToken(arg) {
+			return true
+		}
+	}
+	return false
+}
+
+func writeCommandHelp(cmd *cobra.Command, text string) error {
+	_, err := fmt.Fprint(cmd.OutOrStderr(), text)
+	return err
+}
+
+func prOperationHelp(args []string) (string, bool) {
+	if len(args) == 0 || !isHelpRequest(args[1:]) {
+		return "", false
+	}
+	switch args[0] {
+	case "fetch":
+		return adoPRFetchHelp, true
+	case "ensure":
+		return adoPREnsureHelp, true
+	case "comment":
+		return adoPRCommentHelp, true
+	case "reply":
+		return adoPRReplyHelp, true
+	case "resolve":
+		return adoPRResolveHelp, true
+	case "reopen":
+		return adoPRReopenHelp, true
+	default:
+		return "", false
+	}
+}
+
+const configInitHelp = `Create an adomi configuration template.
+
+Usage:
+  adomi config init [--global]
+
+Flags:
+  --global   create the user-level configuration instead of the repository configuration
+
+stdout:
+  Prints only the created configuration file path on success.
+
+Compatibility:
+  adomi ado config init [--global] is a hidden compatibility alias for this command.
+`
+
+const adoFetchHelp = `Fetch Azure DevOps work item context.
+
+Usage:
+  adomi ado fetch <work-item-id> [--profile <profile-name>] [--global]
+
+Arguments:
+  <work-item-id>   positive Azure DevOps work item ID
+
+Flags:
+  --profile <profile-name>   select a configured Azure DevOps profile
+  --global                   use user-level configuration
+
+stdout:
+  Prints only the exported work item context directory path on success.
+`
+
+const adoWorkItemCommentHelp = `Add a comment to an Azure DevOps work item.
+
+Usage:
+  adomi ado comment <work-item-id> (--message <text> | --message-file <path>) [--profile <profile-name>] [--global] [--json]
+
+Arguments:
+  <work-item-id>   positive Azure DevOps work item ID
+
+Flags:
+  --message <text>        inline comment text
+  --message-file <path>   file containing comment text
+  --profile <profile-name>   select a configured Azure DevOps profile
+  --global                   use user-level configuration
+  --json                     print one compact JSON object
+
+Rules:
+  Provide exactly one message source: --message or --message-file.
+  No broader work item writes are exposed.
+
+stdout:
+  Prints only the created comment ID, or one JSON object when --json is used.
+`
+
+const adoWorkItemNamespaceHelp = `Manage Azure DevOps work item maintenance. Supported operations: comment.
+
+Usage:
+  adomi ado work-item comment <work-item-id> (--message <text> | --message-file <path>) [--profile <profile-name>] [--global] [--json]
+
+Arguments:
+  <work-item-id>   positive Azure DevOps work item ID
+
+Flags:
+  --message <text>        inline comment text
+  --message-file <path>   file containing comment text
+  --profile <profile-name>   select a configured Azure DevOps profile
+  --global                   use user-level configuration
+  --json                     print one compact JSON object
+
+Rules:
+  Provide exactly one message source: --message or --message-file.
+  No broader work item writes are exposed.
+
+stdout:
+  Prints only the created comment ID, or one JSON object when --json is used.
+`
+
+const adoPRFetchHelp = `Fetch Azure DevOps pull request context.
+
+Usage:
+  adomi ado pr fetch <pull-request-id> [--profile <profile-name>] [--global]
+
+Arguments:
+  <pull-request-id>   positive Azure DevOps pull request ID
+
+Flags:
+  --profile <profile-name>   select a configured Azure DevOps profile
+  --global                   use user-level configuration
+
+stdout:
+  Prints only the exported pull request context directory path on success.
+`
+
+const adoPREnsureHelp = `Create or update the active pull request for the current repository branch.
+
+Usage:
+  adomi ado pr ensure [--title <title>] [--description-file <path>] [--source <branch>] [--target <branch>] [--repository <name-or-id>] [--profile <profile-name>] [--global] [--json]
+
+Flags:
+  --title <title>            set the pull request title; required when creating a new pull request
+  --description-file <path>  read the pull request description from a non-empty file
+  --source <branch>          override the inferred source branch
+  --target <branch>          override the inferred target branch
+  --repository <name-or-id>  override the inferred Azure DevOps repository
+  --profile <profile-name>   select a configured Azure DevOps profile
+  --global                   use user-level configuration
+  --json                     print one compact JSON object
+
+Rules:
+  When no active pull request exists, create a new one; otherwise update only fields you provide.
+  No PR governance commands are exposed here.
+
+stdout:
+  Prints only the pull request ID, or one JSON object when --json is used.
+`
+
+const adoPRCommentHelp = `Create a new Azure DevOps pull request comment thread.
+
+Usage:
+  adomi ado pr comment <pull-request-id> (--message <text> | --message-file <path>) [--file <path> --line <line>] [--profile <profile-name>] [--global] [--json]
+
+Arguments:
+  <pull-request-id>   positive Azure DevOps pull request ID
+
+Flags:
+  --message <text>        inline comment text
+  --message-file <path>   file containing comment text
+  --file <path>           changed file path for an inline thread
+  --line <line>           positive right-side line number for an inline thread
+  --profile <profile-name>   select a configured Azure DevOps profile
+  --global                   use user-level configuration
+  --json                     print one compact JSON object
+
+Rules:
+  Provide exactly one message source: --message or --message-file.
+  Omit --file and --line for a PR-level thread; provide both for an inline thread.
+
+stdout:
+  Prints only the created thread ID, or one JSON object when --json is used.
+`
+
+const adoPRReplyHelp = `Reply to an existing Azure DevOps pull request thread.
+
+Usage:
+  adomi ado pr reply <pull-request-id> --thread <thread-id> (--message <text> | --message-file <path>) [--profile <profile-name>] [--global] [--json]
+
+Arguments:
+  <pull-request-id>   positive Azure DevOps pull request ID
+
+Flags:
+  --thread <thread-id>    positive thread ID to reply to
+  --message <text>        inline reply text
+  --message-file <path>   file containing reply text
+  --profile <profile-name>   select a configured Azure DevOps profile
+  --global                   use user-level configuration
+  --json                     print one compact JSON object
+
+Rules:
+  Provide exactly one message source: --message or --message-file.
+
+stdout:
+  Prints only the created comment ID, or one JSON object when --json is used.
+`
+
+const adoPRResolveHelp = `Resolve an Azure DevOps pull request thread as fixed.
+
+Usage:
+  adomi ado pr resolve <pull-request-id> --thread <thread-id> [--profile <profile-name>] [--global] [--json]
+
+Arguments:
+  <pull-request-id>   positive Azure DevOps pull request ID
+
+Flags:
+  --thread <thread-id>    positive thread ID to mark fixed
+  --profile <profile-name>   select a configured Azure DevOps profile
+  --global                   use user-level configuration
+  --json                     print one compact JSON object
+
+stdout:
+  Prints only the thread ID, or one JSON object when --json is used.
+`
+
+const adoPRReopenHelp = `Reopen an Azure DevOps pull request thread as active.
+
+Usage:
+  adomi ado pr reopen <pull-request-id> --thread <thread-id> [--profile <profile-name>] [--global] [--json]
+
+Arguments:
+  <pull-request-id>   positive Azure DevOps pull request ID
+
+Flags:
+  --thread <thread-id>    positive thread ID to mark active
+  --profile <profile-name>   select a configured Azure DevOps profile
+  --global                   use user-level configuration
+  --json                     print one compact JSON object
+
+stdout:
+  Prints only the thread ID, or one JSON object when --json is used.
+`
+
+const adoLoginHelp = `Store an Azure DevOps PAT.
+
+Usage:
+  adomi ado login (--profile <profile-name> | --pat-ref <ref>) [--global]
+
+Flags:
+  --profile <profile-name>   load the credential reference from a configured profile
+  --pat-ref <ref>            store the PAT under an explicit credential reference
+  --global                   use user-level configuration when resolving --profile
+
+Streams:
+  The secret prompt is written to stderr. This command prints no success data to stdout.
+`
+
+const adoLogoutHelp = `Delete an Azure DevOps PAT credential.
+
+Usage:
+  adomi ado logout (--profile <profile-name> | --pat-ref <ref>) [--global]
+
+Flags:
+  --profile <profile-name>   load the credential reference from a configured profile
+  --pat-ref <ref>            delete an explicit credential reference
+  --global                   use user-level configuration when resolving --profile
+`
+
+const adoProfilesListHelp = `List configured Azure DevOps profiles.
+
+Usage:
+  adomi ado profiles list [--global]
+
+Flags:
+  --global   list user-level profiles instead of repository profiles
+
+stdout:
+  Prints one profile name per line in sorted order.
+`
 
 func (r Runner) dependencies() Dependencies {
 	deps := r.deps

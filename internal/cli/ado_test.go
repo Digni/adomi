@@ -2374,6 +2374,223 @@ func TestADOPullRequestNamespaceHelpListsSupportedOperations(t *testing.T) {
 	}
 }
 
+func TestADOPullRequestEnsureCommandHelp(t *testing.T) {
+	stderr := runHelp(t, Runner{deps: Dependencies{}}, []string{"ado", "pr", "ensure", "--help"})
+	for _, want := range []string{
+		"Usage:",
+		"adomi ado pr ensure",
+		"create",
+		"update",
+		"--title",
+		"required when creating",
+		"--description-file",
+		"--source",
+		"--target",
+		"--repository",
+		"--profile",
+		"--global",
+		"--json",
+		"stdout",
+		"pull request ID",
+	} {
+		if !strings.Contains(stderr, want) {
+			t.Fatalf("stderr = %q, want %q", stderr, want)
+		}
+	}
+	for _, notWant := range []string{"approve", "approval", "merge", "reviewer"} {
+		if strings.Contains(stderr, notWant) {
+			t.Fatalf("stderr = %q, want no governance term %q", stderr, notWant)
+		}
+	}
+}
+
+func TestADOPullRequestShortHelpAlias(t *testing.T) {
+	stderr := runHelp(t, Runner{deps: Dependencies{}}, []string{"ado", "pr", "ensure", "-h"})
+	for _, want := range []string{"Usage:", "adomi ado pr ensure", "--title", "pull request ID"} {
+		if !strings.Contains(stderr, want) {
+			t.Fatalf("stderr = %q, want %q", stderr, want)
+		}
+	}
+}
+
+func TestADOPullRequestOperationHelp(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+		want []string
+	}{
+		{
+			name: "comment",
+			args: []string{"ado", "pr", "comment", "--help"},
+			want: []string{"Usage:", "adomi ado pr comment", "PR-level", "inline", "--message", "--message-file", "exactly one", "--file", "--line", "--profile", "--global", "--json", "stdout", "thread ID"},
+		},
+		{
+			name: "reply",
+			args: []string{"ado", "pr", "reply", "--help"},
+			want: []string{"Usage:", "adomi ado pr reply", "--thread", "thread ID", "--message", "--message-file", "exactly one", "--profile", "--global", "--json", "stdout", "comment ID"},
+		},
+		{
+			name: "resolve",
+			args: []string{"ado", "pr", "resolve", "--help"},
+			want: []string{"Usage:", "adomi ado pr resolve", "--thread", "thread ID", "fixed", "--profile", "--global", "--json", "stdout", "thread ID"},
+		},
+		{
+			name: "reopen",
+			args: []string{"ado", "pr", "reopen", "--help"},
+			want: []string{"Usage:", "adomi ado pr reopen", "--thread", "thread ID", "active", "--profile", "--global", "--json", "stdout", "thread ID"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			stderr := runHelp(t, Runner{deps: Dependencies{}}, tt.args)
+			for _, want := range tt.want {
+				if !strings.Contains(stderr, want) {
+					t.Fatalf("stderr = %q, want %q", stderr, want)
+				}
+			}
+		})
+	}
+}
+
+func TestADOActionCommandHelp(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+		want []string
+	}{
+		{
+			name: "fetch work item",
+			args: []string{"ado", "fetch", "--help"},
+			want: []string{"Usage:", "adomi ado fetch", "work-item-id", "--profile", "--global", "stdout", "context directory"},
+		},
+		{
+			name: "fetch pull request",
+			args: []string{"ado", "pr", "fetch", "--help"},
+			want: []string{"Usage:", "adomi ado pr fetch", "pull-request-id", "--profile", "--global", "stdout", "context directory"},
+		},
+		{
+			name: "work item comment shorthand",
+			args: []string{"ado", "comment", "--help"},
+			want: []string{"Usage:", "adomi ado comment", "work-item-id", "--message", "--message-file", "exactly one", "--profile", "--global", "--json", "stdout", "comment ID"},
+		},
+		{
+			name: "work item comment namespace",
+			args: []string{"ado", "work-item", "comment", "--help"},
+			want: []string{"Usage:", "adomi ado work-item comment", "work-item-id", "--message", "--message-file", "exactly one", "--profile", "--global", "--json", "stdout", "comment ID"},
+		},
+		{
+			name: "login",
+			args: []string{"ado", "login", "--help"},
+			want: []string{"Usage:", "adomi ado login", "--profile", "--pat-ref", "--global", "PAT", "stderr"},
+		},
+		{
+			name: "logout",
+			args: []string{"ado", "logout", "--help"},
+			want: []string{"Usage:", "adomi ado logout", "--profile", "--pat-ref", "--global", "credential"},
+		},
+		{
+			name: "profiles list",
+			args: []string{"ado", "profiles", "list", "--help"},
+			want: []string{"Usage:", "adomi ado profiles list", "--global", "stdout", "profile"},
+		},
+		{
+			name: "config init",
+			args: []string{"config", "init", "--help"},
+			want: []string{"Usage:", "adomi config init", "--global", "stdout", "configuration"},
+		},
+		{
+			name: "hidden ado config init alias",
+			args: []string{"ado", "config", "init", "--help"},
+			want: []string{"Usage:", "adomi config init", "--global", "stdout", "configuration"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			stderr := runHelp(t, Runner{deps: Dependencies{}}, tt.args)
+			for _, want := range tt.want {
+				if !strings.Contains(stderr, want) {
+					t.Fatalf("stderr = %q, want %q", stderr, want)
+				}
+			}
+		})
+	}
+}
+
+func TestADOPullRequestHelpIsSideEffectFree(t *testing.T) {
+	runner := Runner{deps: Dependencies{
+		PATStore: failOnGetPATStore{t: t},
+		ReadSecret: func(prompt string, stdin io.Reader, stderr io.Writer) (string, error) {
+			t.Fatalf("ReadSecret called for help request with prompt %q", prompt)
+			return "", nil
+		},
+		Getwd: func() (string, error) {
+			t.Fatal("Getwd called for help request")
+			return "", nil
+		},
+		UserHomeDir: func() (string, error) {
+			t.Fatal("UserHomeDir called for help request")
+			return "", nil
+		},
+		FindRepoRoot: func(start string) (string, error) {
+			t.Fatalf("FindRepoRoot called for help request with start %q", start)
+			return "", nil
+		},
+		LoadConfig: func(repoRoot, homeDir, requestedProfile string, scope config.Scope) (*config.Loaded, error) {
+			t.Fatal("LoadConfig called for help request")
+			return nil, nil
+		},
+		LoadAllConfig: func(repoRoot, homeDir string, scope config.Scope) (*config.Loaded, error) {
+			t.Fatal("LoadAllConfig called for help request")
+			return nil, nil
+		},
+		RemoteURLs: func(repoRoot string) ([]string, error) {
+			t.Fatal("RemoteURLs called for help request")
+			return nil, nil
+		},
+		GitRemotes: func(repoRoot string) ([]gitRemote, error) {
+			t.Fatal("GitRemotes called for help request")
+			return nil, nil
+		},
+		CurrentBranch: func(repoRoot string) (string, error) {
+			t.Fatal("CurrentBranch called for help request")
+			return "", nil
+		},
+		RemoteDefaultBranch: func(repoRoot, remoteName string) (string, error) {
+			t.Fatal("RemoteDefaultBranch called for help request")
+			return "", nil
+		},
+		NewHTTPClient: func(proxyURL string) (*http.Client, error) {
+			t.Fatal("NewHTTPClient called for help request")
+			return nil, nil
+		},
+		NewADOClient: func(httpClient *http.Client, cfg ado.ClientConfig) (ADOClient, error) {
+			t.Fatal("NewADOClient called for help request")
+			return nil, nil
+		},
+	}}
+
+	stderr := runHelp(t, runner, []string{"ado", "pr", "ensure", "--description-file", "/does/not/exist", "--help"})
+	if !strings.Contains(stderr, "adomi ado pr ensure") {
+		t.Fatalf("stderr = %q, want ensure help", stderr)
+	}
+}
+
+func runHelp(t *testing.T, runner Runner, args []string) string {
+	t.Helper()
+	var stdout, stderr bytes.Buffer
+	err := runner.Run(args, strings.NewReader(""), &stdout, &stderr)
+	if err != nil {
+		t.Fatalf("Run(%v) returned error: %v", args, err)
+	}
+	if stdout.String() != "" {
+		t.Fatalf("Run(%v) stdout = %q, want empty", args, stdout.String())
+	}
+	if stderr.String() == "" {
+		t.Fatalf("Run(%v) stderr empty, want help", args)
+	}
+	return stderr.String()
+}
+
 func TestADOPullRequestPrintsOnlyExportedPath(t *testing.T) {
 	store := &fakePATStore{values: map[string]string{"shared-ado": "secret-pat"}}
 	fakeClient := fakeADOClient{}
