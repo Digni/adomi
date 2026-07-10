@@ -32,6 +32,30 @@ type Client struct {
 	baseURL    *url.URL
 }
 
+type redirectLocationGuard struct {
+	transport *http.Transport
+}
+
+func (g *redirectLocationGuard) RoundTrip(req *http.Request) (*http.Response, error) {
+	resp, err := g.transport.RoundTrip(req)
+	if err != nil || resp == nil || !isFollowedRedirect(resp.StatusCode) {
+		return resp, err
+	}
+
+	location := resp.Header.Get("Location")
+	if location == "" {
+		return resp, nil
+	}
+	if _, err := req.URL.Parse(location); err != nil {
+		resp.Header.Del("Location")
+	}
+	return resp, nil
+}
+
+func (g *redirectLocationGuard) CloseIdleConnections() {
+	g.transport.CloseIdleConnections()
+}
+
 func NewHTTPClient(proxyURL string) (*http.Client, error) {
 	transport := &http.Transport{}
 	if proxyURL != "" {
@@ -48,9 +72,25 @@ func NewHTTPClient(proxyURL string) (*http.Client, error) {
 	}
 
 	return &http.Client{
-		Transport: transport,
+		Transport: &redirectLocationGuard{transport: transport},
 		Timeout:   60 * time.Second,
+		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
 	}, nil
+}
+
+func isFollowedRedirect(statusCode int) bool {
+	switch statusCode {
+	case http.StatusMovedPermanently,
+		http.StatusFound,
+		http.StatusSeeOther,
+		http.StatusTemporaryRedirect,
+		http.StatusPermanentRedirect:
+		return true
+	default:
+		return false
+	}
 }
 
 func NewClient(httpClient *http.Client, cfg ClientConfig) (*Client, error) {
@@ -587,6 +627,13 @@ func (c *Client) validateDownloadURL(rawURL string) error {
 }
 
 func responseError(action string, id int, resp *http.Response) error {
+	if isFollowedRedirect(resp.StatusCode) {
+		if id > 0 {
+			return fmt.Errorf("%s %d failed with status %d: Azure DevOps redirected the request; check the configured PAT and base URL", action, id, resp.StatusCode)
+		}
+		return fmt.Errorf("%s failed with status %d: Azure DevOps redirected the request; check the configured PAT and base URL", action, resp.StatusCode)
+	}
+
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 	suffix := strings.TrimSpace(string(body))
 	if id > 0 {

@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -370,6 +371,62 @@ func TestADOFetchLeavesStdoutEmptyOnError(t *testing.T) {
 	}
 	if stdout.String() != "" {
 		t.Fatalf("stdout = %q, want empty", stdout.String())
+	}
+}
+
+func TestADOFetchInvalidTokenRedirectReturnsStatusWithoutFollowingSignIn(t *testing.T) {
+	var signInRequests atomic.Int32
+	signIn := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		signInRequests.Add(1)
+		fmt.Fprint(w, "<html>interactive sign-in page</html>")
+	}))
+	t.Cleanup(signIn.Close)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") == "" {
+			t.Error("Authorization header is empty")
+		}
+		http.Redirect(w, r, signIn.URL+"/signin", http.StatusFound)
+	}))
+	t.Cleanup(server.Close)
+
+	runner := Runner{deps: Dependencies{
+		PATStore:     &fakePATStore{values: map[string]string{"shared-ado": "invalid-pat"}},
+		Getwd:        func() (string, error) { return "/repo/subdir", nil },
+		UserHomeDir:  func() (string, error) { return "/home/me", nil },
+		FindRepoRoot: func(string) (string, error) { return "/repo", nil },
+		LoadConfig: func(repoRoot, homeDir, requestedProfile string, scope config.Scope) (*config.Loaded, error) {
+			return &config.Loaded{Profile: config.Profile{
+				Name:       "company-cloud",
+				PATRef:     "shared-ado",
+				BaseURL:    server.URL,
+				Project:    "MyProject",
+				APIVersion: "7.1",
+			}}, nil
+		},
+	}}
+	var stdout bytes.Buffer
+
+	err := runner.Run([]string{"ado", "fetch", "12345", "--profile", "company-cloud"}, strings.NewReader(""), &stdout, &bytes.Buffer{})
+	if err == nil {
+		t.Fatal("Run error = nil, want redirect status error")
+	}
+	if stdout.String() != "" {
+		t.Fatalf("stdout = %q, want empty", stdout.String())
+	}
+	if signInRequests.Load() != 0 {
+		t.Fatalf("sign-in target requests = %d, want 0", signInRequests.Load())
+	}
+	errorText := err.Error()
+	for _, want := range []string{"302", "PAT", "base URL"} {
+		if !strings.Contains(errorText, want) {
+			t.Errorf("error = %q, want %q", errorText, want)
+		}
+	}
+	for _, leaked := range []string{"decoding", "interactive sign-in page", signIn.URL, "/signin"} {
+		if strings.Contains(errorText, leaked) {
+			t.Errorf("error = %q, want no %q", errorText, leaked)
+		}
 	}
 }
 
