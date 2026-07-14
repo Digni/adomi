@@ -3051,6 +3051,14 @@ azureDevOps:
 
 type fakeADOClient struct{}
 
+func (fakeADOClient) ResolveWiki(ctx context.Context, identifier string) (*ado.Wiki, error) {
+	return &ado.Wiki{ID: identifier, Name: identifier}, nil
+}
+
+func (fakeADOClient) FetchWikiPage(ctx context.Context, wikiIdentifier string, opts ado.WikiPageFetchOptions) (*ado.WikiPage, error) {
+	return &ado.WikiPage{Path: opts.Path}, nil
+}
+
 func (fakeADOClient) FetchWorkItem(ctx context.Context, id int) (*ado.WorkItem, error) {
 	return &ado.WorkItem{ID: id}, nil
 }

@@ -428,15 +428,34 @@ func (c *Client) UpdatePullRequestThread(ctx context.Context, opts PullRequestTh
 }
 
 func (c *Client) doJSON(ctx context.Context, method, requestURL string, body any, target any, action, decodeAction string) error {
-	data, err := json.Marshal(body)
-	if err != nil {
-		return fmt.Errorf("encoding request body: %w", err)
+	return c.doJSONWithOptions(ctx, method, requestURL, body, target, action, decodeAction, jsonRequestOptions{
+		statusError: responseError,
+	})
+}
+
+type statusErrorFunc func(action string, id int, resp *http.Response) error
+
+type jsonRequestOptions struct {
+	omitNilBody bool
+	statusError statusErrorFunc
+}
+
+func (c *Client) doJSONWithOptions(ctx context.Context, method, requestURL string, body any, target any, action, decodeAction string, opts jsonRequestOptions) error {
+	var requestBody io.Reader
+	if body != nil || !opts.omitNilBody {
+		data, err := json.Marshal(body)
+		if err != nil {
+			return fmt.Errorf("encoding request body: %w", err)
+		}
+		requestBody = bytes.NewReader(data)
 	}
-	req, err := http.NewRequestWithContext(ctx, method, requestURL, bytes.NewReader(data))
+	req, err := http.NewRequestWithContext(ctx, method, requestURL, requestBody)
 	if err != nil {
 		return fmt.Errorf("creating request: %w", err)
 	}
-	req.Header.Set("Content-Type", "application/json")
+	if body != nil || !opts.omitNilBody {
+		req.Header.Set("Content-Type", "application/json")
+	}
 	c.authorize(req)
 
 	resp, err := c.httpClient.Do(req)
@@ -446,7 +465,7 @@ func (c *Client) doJSON(ctx context.Context, method, requestURL string, body any
 	defer resp.Body.Close()
 
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		return responseError(action, 0, resp)
+		return opts.statusError(action, 0, resp)
 	}
 	decoder := json.NewDecoder(resp.Body)
 	if err := decoder.Decode(target); err != nil {
@@ -627,6 +646,10 @@ func (c *Client) validateDownloadURL(rawURL string) error {
 }
 
 func responseError(action string, id int, resp *http.Response) error {
+	return formatResponseError(action, id, resp, false)
+}
+
+func formatResponseError(action string, id int, resp *http.Response, suppressHTML bool) error {
 	if isFollowedRedirect(resp.StatusCode) {
 		if id > 0 {
 			return fmt.Errorf("%s %d failed with status %d: Azure DevOps redirected the request; check the configured PAT and base URL", action, id, resp.StatusCode)
@@ -636,6 +659,9 @@ func responseError(action string, id int, resp *http.Response) error {
 
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 	suffix := strings.TrimSpace(string(body))
+	if suppressHTML && isHTMLResponse(resp.Header.Get("Content-Type"), body) {
+		suffix = ""
+	}
 	if id > 0 {
 		if suffix != "" {
 			return fmt.Errorf("%s %d failed with status %d: %s", action, id, resp.StatusCode, suffix)
@@ -646,4 +672,12 @@ func responseError(action string, id int, resp *http.Response) error {
 		return fmt.Errorf("%s failed with status %d: %s", action, resp.StatusCode, suffix)
 	}
 	return fmt.Errorf("%s failed with status %d", action, resp.StatusCode)
+}
+
+func isHTMLResponse(contentType string, body []byte) bool {
+	mediaType := strings.TrimSpace(strings.SplitN(contentType, ";", 2)[0])
+	if strings.EqualFold(mediaType, "text/html") {
+		return true
+	}
+	return strings.HasPrefix(http.DetectContentType(body), "text/html")
 }

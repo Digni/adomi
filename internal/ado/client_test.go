@@ -239,6 +239,27 @@ func TestClientFetchWorkItemReturnsCleanNon2xxErrorWithEmptyBody(t *testing.T) {
 	}
 }
 
+func TestClientFetchWorkItemKeepsDirectHTMLStatusBody(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.WriteHeader(http.StatusInternalServerError)
+		fmt.Fprint(w, "<html><body>legacy work item diagnostics</body></html>")
+	}))
+	t.Cleanup(server.Close)
+	client, err := NewClient(server.Client(), ClientConfig{BaseURL: server.URL, Project: "Project", PAT: "secret"})
+	if err != nil {
+		t.Fatalf("NewClient returned error: %v", err)
+	}
+
+	_, err = client.FetchWorkItem(context.Background(), 12345)
+	if err == nil {
+		t.Fatal("FetchWorkItem error = nil, want status error")
+	}
+	if !strings.Contains(err.Error(), "500") || !strings.Contains(err.Error(), "legacy work item diagnostics") {
+		t.Fatalf("error = %q, want status and existing HTML body context", err.Error())
+	}
+}
+
 func TestClientFetchWorkItemRejectsMismatchedID(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, `{"id":999,"fields":{"System.Title":"Wrong"}}`)

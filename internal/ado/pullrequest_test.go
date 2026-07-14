@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -347,10 +348,20 @@ func TestClientPullRequestIterationsBuildsURLAndAuth(t *testing.T) {
 	var seenMethod string
 	var seenPath string
 	var seenAPIVersion string
+	var seenContentType string
+	var seenBody []byte
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		seenMethod = r.Method
 		seenPath = r.URL.EscapedPath()
 		seenAPIVersion = r.URL.Query().Get("api-version")
+		seenContentType = r.Header.Get("Content-Type")
+		if r.Body != nil {
+			var err error
+			seenBody, err = io.ReadAll(r.Body)
+			if err != nil {
+				t.Fatalf("reading request body: %v", err)
+			}
+		}
 		if r.Header.Get("Authorization") == "" {
 			t.Fatal("missing Authorization header")
 		}
@@ -374,6 +385,12 @@ func TestClientPullRequestIterationsBuildsURLAndAuth(t *testing.T) {
 	}
 	if seenAPIVersion != "7.1" {
 		t.Fatalf("api-version = %q, want 7.1", seenAPIVersion)
+	}
+	if string(seenBody) != "null" {
+		t.Fatalf("request body = %q, want null", seenBody)
+	}
+	if seenContentType != "application/json" {
+		t.Fatalf("Content-Type = %q, want application/json", seenContentType)
 	}
 	if len(iterations) != 2 || iterations[0].ID != 1 || iterations[1].ID != 3 {
 		t.Fatalf("iterations = %+v, want IDs 1/3", iterations)

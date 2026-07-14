@@ -38,6 +38,7 @@ type ADOClient interface {
 	ado.AttachmentDownloader
 	ado.PullRequestFetcher
 	ado.PullRequestMaintainer
+	ado.WikiFetcher
 }
 
 type Dependencies struct {
@@ -58,6 +59,8 @@ type Dependencies struct {
 	ExportContext       func(ctx context.Context, downloader ado.AttachmentDownloader, opts ado.ExportOptions, tree *ado.WorkItemTree) (string, error)
 	FetchPullRequest    func(ctx context.Context, fetcher ado.PullRequestFetcher, id int) (*ado.PullRequestBundle, error)
 	ExportPullRequest   func(opts ado.PullRequestExportOptions, bundle *ado.PullRequestBundle) (string, error)
+	FetchWikiContext    func(ctx context.Context, fetcher ado.WikiFetcher, wikiIdentifier, pagePath string, recursive bool) (*ado.WikiContext, error)
+	ExportWikiContext   func(opts ado.WikiExportOptions, wikiContext *ado.WikiContext) (string, error)
 	Now                 func() time.Time
 }
 
@@ -129,12 +132,38 @@ func (r Runner) newADOCommand(stdin io.Reader, stdout, stderr io.Writer) *cobra.
 		r.newADOWorkItemCommentCommand(stdout),
 		r.newADOWorkItemCommand(stdout),
 		r.newADOPullRequestCommand(stdout),
+		r.newADOWikiCommand(stdout),
 		r.newADOLoginCommand(stdin, stderr),
 		r.newADOLogoutCommand(),
 		r.newADOProfilesCommand(stdout),
 		r.newADOConfigAliasCommand(stdout),
 	)
 	return adoCmd
+}
+
+func (r Runner) newADOWikiCommand(stdout io.Writer) *cobra.Command {
+	wikiCmd := &cobra.Command{
+		Use:   "wiki",
+		Short: "Fetch Azure DevOps wiki context",
+		Long:  adoWikiNamespaceHelp,
+	}
+	wikiCmd.AddCommand(r.newADOWikiFetchCommand(stdout))
+	return wikiCmd
+}
+
+func (r Runner) newADOWikiFetchCommand(stdout io.Writer) *cobra.Command {
+	return &cobra.Command{
+		Use:                "fetch <wiki-id-or-name> --page <absolute-wiki-page-path> [--recursive] [--profile <profile-name>] [--global]",
+		Short:              "Fetch Azure DevOps wiki context",
+		Long:               adoWikiFetchHelp,
+		DisableFlagParsing: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if isHelpRequest(args) {
+				return writeCommandHelp(cmd, adoWikiFetchHelp)
+			}
+			return r.runADOWikiFetch(args, stdout)
+		},
+	}
 }
 
 func (r Runner) newADOFetchCommand(stdout io.Writer) *cobra.Command {
@@ -331,6 +360,44 @@ Flags:
 
 stdout:
   Prints only the exported work item context directory path on success.
+`
+
+const adoWikiNamespaceHelp = `Fetch Azure DevOps wiki context into the current Git repository.
+
+Usage:
+  adomi ado wiki fetch <wiki-id-or-name> --page <absolute-wiki-page-path> [--recursive] [--profile <profile-name>] [--global]
+
+The wiki identifier and --page are required. The page path must be an absolute Azure DevOps wiki path beginning with /.
+Use --recursive to include all descendant pages; otherwise only the selected page is fetched.
+--profile selects a configured Azure DevOps profile, and --global uses user-level configuration.
+A Git repository is always required because output is written below .adomi/context/wikis in that repository.
+Markdown links are preserved, but attachments and other linked resources are not downloaded. This command does not perform indexed wiki search.
+
+stdout:
+  Prints only the exported wiki context directory path on success.
+`
+
+const adoWikiFetchHelp = `Fetch Azure DevOps wiki context into the current Git repository.
+
+Usage:
+  adomi ado wiki fetch <wiki-id-or-name> --page <absolute-wiki-page-path> [--recursive] [--profile <profile-name>] [--global]
+
+Arguments:
+  <wiki-id-or-name>   required Azure DevOps wiki ID or name
+
+Flags:
+  --page <absolute-wiki-page-path>   required absolute wiki page path beginning with /
+  --recursive                       include all descendant pages
+  --profile <profile-name>          select a configured Azure DevOps profile
+  --global                          use user-level configuration
+
+Rules:
+  A Git repository is always required because output is written below .adomi/context/wikis in that repository.
+  Markdown links are preserved, but attachments and other linked resources are not downloaded.
+  This command does not perform indexed wiki search.
+
+stdout:
+  Prints only the exported wiki context directory path on success.
 `
 
 const adoWorkItemCommentHelp = `Add a comment to an Azure DevOps work item.
@@ -593,6 +660,12 @@ func (r Runner) dependencies() Dependencies {
 	if deps.ExportPullRequest == nil {
 		deps.ExportPullRequest = defaults.ExportPullRequest
 	}
+	if deps.FetchWikiContext == nil {
+		deps.FetchWikiContext = defaults.FetchWikiContext
+	}
+	if deps.ExportWikiContext == nil {
+		deps.ExportWikiContext = defaults.ExportWikiContext
+	}
 	if deps.Now == nil {
 		deps.Now = defaults.Now
 	}
@@ -620,6 +693,8 @@ func defaultDependencies() Dependencies {
 		ExportContext:     ado.ExportContext,
 		FetchPullRequest:  ado.FetchPullRequestBundle,
 		ExportPullRequest: ado.ExportPullRequest,
+		FetchWikiContext:  ado.FetchWikiContext,
+		ExportWikiContext: ado.ExportWikiContext,
 		Now:               time.Now,
 	}
 }
