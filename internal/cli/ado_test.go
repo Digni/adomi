@@ -3051,6 +3051,14 @@ azureDevOps:
 
 type fakeADOClient struct{}
 
+func (fakeADOClient) ListInProgressPipelineRuns(context.Context) ([]ado.PipelineRun, error) {
+	return []ado.PipelineRun{}, nil
+}
+
+func (fakeADOClient) GetPipelineRun(context.Context, int) (*ado.PipelineRun, error) {
+	return &ado.PipelineRun{}, nil
+}
+
 func (fakeADOClient) ResolveWiki(ctx context.Context, identifier string) (*ado.Wiki, error) {
 	return &ado.Wiki{ID: identifier, Name: identifier}, nil
 }

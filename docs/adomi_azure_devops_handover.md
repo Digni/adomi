@@ -100,6 +100,17 @@ adomi ado pr resolve <pull-request-id> --thread <thread-id>
 adomi ado pr reopen <pull-request-id> --thread <thread-id>
 ```
 
+Read-only pipeline run status:
+
+```bash
+adomi ado pipeline list [--profile <profile-name>] [--global]
+adomi ado pipeline get <run-id> [--profile <profile-name>] [--global]
+```
+
+Both pipeline commands run inside a Git repository, including with `--global`; use `--profile <profile-name>` to select a configured profile. `pipeline list` requests the exact `inProgress` runs across YAML and classic Build pipelines and follows the returned continuation pages as a best-effort one-shot view rather than a transactional snapshot. `pipeline get` accepts a decimal Build run ID from 1 through 2147483647. Success is compact JSON, with list returning an ordered `runs` array and get returning one run object; unavailable result, source, timestamp, and link fields are JSON null.
+
+The PAT needs the `vso.build` read scope. Pipeline requests require HTTPS, except HTTP is allowed for exact localhost or a direct IPv4/IPv6 loopback address. Loopback HTTP requests bypass configured proxies so credentials remain on-machine. The commands do not poll, fetch stage/job/environment or other execution details, mutate pipelines, or inspect classic Release deployments.
+
 Work item comment maintenance is intentionally narrow: `adomi ado comment <work-item-id>` and the `adomi ado work-item comment <work-item-id>` alias add a text-only comment from exactly one message source (`--message` or `--message-file`). Plain stdout returns only the created work item comment ID; `--json` returns one compact JSON object. No work item field updates, state transitions, assignment changes, relation edits, attachment uploads, comment updates/deletions, or reaction management are supported.
 
 `adomi ado pr ensure` runs inside the current Git repository. It infers the Azure DevOps repository from matching git remotes, the source branch from the current branch, and the target branch from the selected remote default branch when possible. Use `--repository <name-or-id>`, `--source <branch>`, or `--target <branch>` when inference is ambiguous or unavailable.

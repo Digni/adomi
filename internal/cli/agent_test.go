@@ -461,6 +461,21 @@ func requiredAdomiSkillContent() []string {
 		"adding `--profile <profile-name>` when no `.adomi/` folder is present",
 		"folder path structure",
 		"Never print, log, echo, commit, or otherwise expose PAT values",
+		"adomi ado pipeline list [--profile <profile-name>] [--global]",
+		"adomi ado pipeline get <run-id> [--profile <profile-name>] [--global]",
+		"exact `inProgress` runs",
+		"YAML and classic Build pipelines",
+		"best-effort one-shot view, not a transactional snapshot",
+		"compact JSON",
+		"JSON null",
+		"inside a Git repository, including when using `--global`",
+		"`vso.build` read scope",
+		"HTTPS or HTTP on exact localhost or a direct IPv4/IPv6 loopback address",
+		"Loopback HTTP requests bypass configured proxies so credentials remain on-machine",
+		"do not poll or wait",
+		"stage, job, task, timeline, log, artifact, approval, environment, or deployment details",
+		"classic Release deployments",
+		"queue, cancel, retry, approve, or otherwise mutate a pipeline",
 	}
 }
 

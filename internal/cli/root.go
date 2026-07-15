@@ -39,6 +39,7 @@ type ADOClient interface {
 	ado.PullRequestFetcher
 	ado.PullRequestMaintainer
 	ado.WikiFetcher
+	ado.PipelineRunReader
 }
 
 type Dependencies struct {
@@ -133,12 +134,57 @@ func (r Runner) newADOCommand(stdin io.Reader, stdout, stderr io.Writer) *cobra.
 		r.newADOWorkItemCommand(stdout),
 		r.newADOPullRequestCommand(stdout),
 		r.newADOWikiCommand(stdout),
+		r.newADOPipelineCommand(stdout),
 		r.newADOLoginCommand(stdin, stderr),
 		r.newADOLogoutCommand(),
 		r.newADOProfilesCommand(stdout),
 		r.newADOConfigAliasCommand(stdout),
 	)
 	return adoCmd
+}
+
+func (r Runner) newADOPipelineCommand(stdout io.Writer) *cobra.Command {
+	pipelineCmd := &cobra.Command{
+		Use:   "pipeline",
+		Short: "Inspect read-only Azure DevOps pipeline run status",
+		Long:  adoPipelineHelp,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			_ = cmd.Help()
+			return fmt.Errorf("usage: adomi ado pipeline <command>")
+		},
+	}
+	pipelineCmd.AddCommand(r.newADOPipelineListCommand(stdout), r.newADOPipelineGetCommand(stdout))
+	return pipelineCmd
+}
+
+func (r Runner) newADOPipelineListCommand(stdout io.Writer) *cobra.Command {
+	return &cobra.Command{
+		Use:                "list [--profile <profile-name>] [--global]",
+		Short:              "List in-progress Azure DevOps pipeline runs",
+		Long:               adoPipelineHelp,
+		DisableFlagParsing: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if isHelpRequest(args) {
+				return writeCommandHelp(cmd, adoPipelineHelp)
+			}
+			return r.runADOPipelineList(args, stdout)
+		},
+	}
+}
+
+func (r Runner) newADOPipelineGetCommand(stdout io.Writer) *cobra.Command {
+	return &cobra.Command{
+		Use:                "get <run-id> [--profile <profile-name>] [--global]",
+		Short:              "Get one Azure DevOps pipeline run",
+		Long:               adoPipelineHelp,
+		DisableFlagParsing: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if isHelpRequest(args) {
+				return writeCommandHelp(cmd, adoPipelineHelp)
+			}
+			return r.runADOPipelineGet(args, stdout)
+		},
+	}
 }
 
 func (r Runner) newADOWikiCommand(stdout io.Writer) *cobra.Command {
@@ -360,6 +406,28 @@ Flags:
 
 stdout:
   Prints only the exported work item context directory path on success.
+`
+
+const adoPipelineHelp = `Inspect read-only Azure DevOps pipeline run status.
+
+Usage:
+  adomi ado pipeline list [--profile <profile-name>] [--global]
+  adomi ado pipeline get <run-id> [--profile <profile-name>] [--global]
+
+Scope:
+  list requests the exact inProgress runs across YAML and classic Build pipelines.
+  Pagination is a best-effort one-shot view, not a transactional snapshot.
+  get accepts a decimal Build run ID in the range 1..2147483647.
+  Both commands require a Git repository, including with --global; --profile selects a configured profile.
+  The PAT needs vso.build read scope. Pipeline endpoints must use HTTPS or loopback HTTP.
+  Loopback HTTP requests bypass configured proxies so credentials remain on-machine.
+
+stdout:
+  Success is one compact JSON value. list returns an ordered runs array; get returns one run object.
+  Every documented key is present, and unavailable result, source, timestamp, or web-link values are null.
+
+Exclusions:
+  These commands perform no polling, stage/job/environment detail lookup, mutation, or classic Release inspection.
 `
 
 const adoWikiNamespaceHelp = `Fetch Azure DevOps wiki context into the current Git repository.
