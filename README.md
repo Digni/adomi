@@ -1,46 +1,129 @@
 # adomi
 
-`adomi` is a Go CLI for Azure DevOps context workflows.
+Adomi brings Azure DevOps context into the repository where you and your coding agent are already working.
 
-## Azure DevOps work items
+Instead of copying source material into a chat, use the `adomi` CLI to export work item, pull request, and wiki context below `.adomi/context/`, or to return pipeline status as compact JSON. Your agent can inspect those local artifacts before planning or changing code. When you explicitly ask it to report back, Adomi also provides a small set of bounded work item and pull request maintenance commands.
 
-Fetch work item context into the repository-local `.adomi/context` directory:
+## Why Adomi
+
+- **Context before code.** Fetch the work item hierarchy, direct children, attachments, pull request discussions, or selected wiki pages into the current Git repository.
+- **One workflow for humans and agents.** Commands keep success output data-only, so paths, IDs, and JSON can be passed directly into scripts or agent workflows.
+- **Credentials stay out of the repository.** Profiles live in YAML; PAT values are entered through `adomi ado login` and stored in the operating system keyring.
+- **Writes stay explicit.** Adomi can add text comments, create or update the active branch PR, and maintain selected review threads. It does not edit work item fields, approve or merge PRs, or control deployments.
+
+The core loop is simple:
+
+1. Configure an Azure DevOps profile and store its credential securely.
+2. Fetch the source context into `.adomi/context/`.
+3. Let your coding agent inspect those files before it plans or edits.
+4. Use a maintenance command only when you want a specific result written back to Azure DevOps.
+
+## What it can do
+
+| Workflow | Primary command | Result and boundary |
+| --- | --- | --- |
+| Configuration and credentials | `adomi config init`, `adomi ado login` | Repository or global profiles with PAT values kept in the OS keyring. |
+| Agent integration | `adomi agent skill` | Installs an Adomi skill globally or in the current project for shared-agent or Claude skill locations. Existing skills require confirmation or `--force`/`--yes` to replace. |
+| Work item context | `adomi ado fetch <work-item-id>` | Exports the parent chain, direct children, JSON/HTML, and attachments under `.adomi/context/work-items/`. |
+| Work item comments | `adomi ado comment <work-item-id> ...` | Adds one text comment. It cannot update fields, state, assignment, relations, attachments, or existing comments. |
+| Pull request context | `adomi ado pr fetch <pull-request-id>` | Exports PR metadata, review threads, and readable comments under `.adomi/context/pull-requests/`. |
+| Pull request maintenance | `adomi ado pr ensure`, `comment`, `reply`, `resolve`, `reopen` | Maintains the active branch PR or explicit review threads. It cannot approve, reject, merge, complete, abandon, bypass policies, or manage reviewers. |
+| Wiki context | `adomi ado wiki fetch ...` | Exports one page or a recursive subtree as Markdown and metadata. It does not search wikis or download linked attachments. |
+| Pipeline status | `adomi ado pipeline list`, `get` | Returns one-shot compact JSON for in-progress Build runs or one run's overall status. It does not poll, fetch execution detail, inspect classic Release deployments, or mutate pipelines. |
+
+See the [Azure DevOps reference](docs/azure-devops.md) for the complete command forms, outputs, permissions, and limitations.
+
+## Install
+
+Adomi currently uses a source-based Go installation. You need Git and Go 1.26.2 or newer.
 
 ```bash
-adomi ado fetch <work-item-id>
+git clone https://github.com/Digni/adomi.git
+cd adomi
+go install ./cmd/adomi
+adomi --help
 ```
 
-Comment on a work item with exactly one message source:
+`go install` writes the binary to `GOBIN`, or to the `bin` directory below `go env GOPATH` when `GOBIN` is unset. Add that directory to your `PATH` if `adomi` is not found.
+
+To build a repository-local binary instead:
 
 ```bash
-adomi ado comment <work-item-id> --message <text>
-adomi ado comment <work-item-id> --message-file <path>
-adomi ado work-item comment <work-item-id> --message-file <path>
+go build -o ./bin/adomi ./cmd/adomi
+./bin/adomi --help
 ```
 
-Plain work item comment output prints only the created comment ID. `--json` prints one compact JSON object. Work item maintenance is comment-only; field updates, state transitions, relation edits, attachment uploads, comment updates/deletions, and reactions are not supported.
+There is not yet a Homebrew formula, package-manager package, installer script, or published binary-release workflow. The [getting-started guide](docs/getting-started.md) has the complete installation and setup walkthrough.
 
-## Azure DevOps wikis
+## Quick start
 
-Fetch repository-local wiki context as Markdown and metadata:
+Run these commands inside the Git repository that should receive the Azure DevOps context:
 
 ```bash
-adomi ado wiki fetch <wiki-id-or-name> --page <absolute-wiki-page-path> [--recursive]
+adomi config init
 ```
 
-Only the requested page is fetched by default. Add `--recursive` to include every descendant page below it. Wiki fetch does not perform wiki search or download wiki attachments; remote links in Markdown remain unchanged.
-
-## Azure DevOps pipeline status
-
-Inspect running pipelines or one Build run from inside a Git repository:
+Adomi creates `.adomi/config.yaml` as a commented template. Uncomment and edit it with your Azure DevOps organization, project, and profile details, then store the PAT without putting it in YAML or shell history:
 
 ```bash
-adomi ado pipeline list [--profile <profile-name>] [--global]
-adomi ado pipeline get <run-id> [--profile <profile-name>] [--global]
+adomi ado login --profile company-cloud
 ```
 
-`pipeline list` returns the exact `inProgress` YAML and classic Build pipeline runs observed across all continuation pages. Pagination is a best-effort one-shot view, not a transactional snapshot. `pipeline get` accepts a decimal Build run ID from 1 through 2147483647 and returns its current overall status and terminal result when available.
+Optionally install the generated Adomi instructions for coding agents in this repository:
 
-Success is compact JSON: list returns an ordered `runs` array and get returns one run object, with unavailable result, source, timestamp, and link fields represented as JSON null. The PAT needs the `vso.build` read scope. Pipeline requests require HTTPS, except HTTP is allowed for exact localhost or a direct IPv4/IPv6 loopback address. Loopback HTTP requests bypass configured proxies so credentials remain on-machine.
+```bash
+adomi agent skill --project
+```
 
-These commands do not poll, fetch stage/job/environment or other execution details, mutate pipelines, or inspect classic Release deployments.
+Fetch a work item and inspect the path printed by Adomi:
+
+```bash
+CONTEXT=$(adomi ado fetch 12345)
+ls "$CONTEXT"
+```
+
+The export is local working context. Add `.adomi/` to the target repository's `.gitignore` and do not commit fetched artifacts or credentials.
+
+For global configuration, multiple profiles, pull request context, common setup errors, and the alternative first workflow, follow [Getting started](docs/getting-started.md).
+
+## Safety model
+
+Adomi is designed around context-first, user-authorized automation:
+
+- Network-backed Azure DevOps commands run from a Git repository, including when `--global` selects user-level configuration.
+- Repository configuration takes precedence over global configuration; the two files are not merged.
+- Help, prompts, diagnostics, and errors go to stderr. Successful stdout stays limited to paths, IDs, profile names, or compact JSON.
+- Redirects from Azure DevOps API requests are not followed, which avoids turning an expired credential into an interactive sign-in page fetch.
+- Pipeline inspection uses HTTPS, except for direct loopback HTTP development endpoints, and remains read-only.
+- Adomi never prints or stores PAT values in its YAML configuration.
+
+Read the [Azure DevOps reference](docs/azure-devops.md) before using maintenance commands in an automated workflow.
+
+## Command help
+
+The CLI has side-effect-free help for every public action:
+
+```bash
+adomi --help
+adomi ado --help
+adomi ado pr ensure --help
+adomi ado wiki fetch --help
+adomi ado pipeline --help
+```
+
+## Development
+
+From a repository clone:
+
+```bash
+gofmt -w cmd internal
+go test ./...
+go build ./...
+```
+
+Build a runnable development binary with `go build -o ./bin/adomi ./cmd/adomi`.
+
+## Documentation
+
+- [Getting started](docs/getting-started.md) — installation, configuration, credentials, agent setup, and the first context fetch.
+- [Azure DevOps reference](docs/azure-devops.md) — commands, output bundles, profile resolution, permissions, and conservative write boundaries.
