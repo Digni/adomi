@@ -60,7 +60,7 @@ The README and linked reference documentation SHALL make each implemented user w
 
 #### Scenario: Agent integration is documented
 - **WHEN** a coding-agent user looks for Adomi integration
-- **THEN** the documentation explains global and project-scoped `adomi agent skill` targets, the default shared-agent target and Claude target, safe replacement flags, and how the generated skill teaches agents to use Adomi
+- **THEN** the documentation explains global and project-scoped `adomi agent skill` targets; names Codex, OpenCode, Pi, GitHub Copilot, Cursor, and Claude as supported providers; explains that the first five share `.agents/skills` while Claude uses `.claude/skills`; documents `--provider` and the backward-compatible `--claude` alias; covers safe replacement flags; and explains how the generated skill teaches agents to use Adomi
 
 ### Requirement: Documentation has a clear source hierarchy
 The repository SHALL use the README as the concise GitHub landing page, `docs/getting-started.md` as the complete onboarding guide, and `docs/azure-devops.md` as the detailed Azure DevOps command and behavior reference, with descriptive links between them and without presenting the obsolete implementation handover as current user guidance.

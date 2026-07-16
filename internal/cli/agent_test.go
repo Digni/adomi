@@ -51,6 +51,57 @@ func TestAgentSkillAcceptsExplicitGlobalScope(t *testing.T) {
 	}
 }
 
+func TestAgentSkillCreatesNamedProviderSkill(t *testing.T) {
+	providers := []struct {
+		name       string
+		targetRoot string
+	}{
+		{name: "codex", targetRoot: ".agents"},
+		{name: "opencode", targetRoot: ".agents"},
+		{name: "pi", targetRoot: ".agents"},
+		{name: "github-copilot", targetRoot: ".agents"},
+		{name: "cursor", targetRoot: ".agents"},
+		{name: "claude", targetRoot: ".claude"},
+	}
+	for _, provider := range providers {
+		for _, project := range []bool{false, true} {
+			scope := "global"
+			if project {
+				scope = "project"
+			}
+			t.Run(provider.name+"/"+scope, func(t *testing.T) {
+				homeDir := t.TempDir()
+				repoRoot := filepath.Join(t.TempDir(), "adomi")
+				if err := os.Mkdir(repoRoot, 0o700); err != nil {
+					t.Fatal(err)
+				}
+				runner := agentSkillRunner(t, homeDir, repoRoot)
+				args := []string{"agent", "skill", "--provider", provider.name}
+				baseDir := homeDir
+				if project {
+					args = append(args, "--project")
+					baseDir = repoRoot
+				}
+				var stdout, stderr bytes.Buffer
+
+				err := runner.Run(args, strings.NewReader(""), &stdout, &stderr)
+				if err != nil {
+					t.Fatalf("Run returned error: %v", err)
+				}
+				targetDir := filepath.Join(baseDir, provider.targetRoot, "skills", "adomi")
+				if got := stdout.String(); got != targetDir+"\n" {
+					t.Fatalf("stdout = %q, want target path", got)
+				}
+				if stderr.String() != "" {
+					t.Fatalf("stderr = %q, want empty", stderr.String())
+				}
+				assertAdomiSkillContent(t, filepath.Join(targetDir, "SKILL.md"))
+				assertOnlySkillTargetRoot(t, baseDir, provider.targetRoot)
+			})
+		}
+	}
+}
+
 func TestAgentSkillCreatesGlobalClaudeSkill(t *testing.T) {
 	homeDir := t.TempDir()
 	repoRoot := filepath.Join(t.TempDir(), "adomi")
@@ -58,15 +109,18 @@ func TestAgentSkillCreatesGlobalClaudeSkill(t *testing.T) {
 		t.Fatal(err)
 	}
 	runner := agentSkillRunner(t, homeDir, repoRoot)
-	var stdout bytes.Buffer
+	var stdout, stderr bytes.Buffer
 
-	err := runner.Run([]string{"agent", "skill", "--claude"}, strings.NewReader(""), &stdout, &bytes.Buffer{})
+	err := runner.Run([]string{"agent", "skill", "--claude"}, strings.NewReader(""), &stdout, &stderr)
 	if err != nil {
 		t.Fatalf("Run returned error: %v", err)
 	}
 	targetDir := filepath.Join(homeDir, ".claude", "skills", "adomi")
 	if got := stdout.String(); got != targetDir+"\n" {
 		t.Fatalf("stdout = %q, want target path", got)
+	}
+	if stderr.String() != "" {
+		t.Fatalf("stderr = %q, want quiet compatibility alias", stderr.String())
 	}
 	assertAdomiSkillContent(t, filepath.Join(targetDir, "SKILL.md"))
 }
@@ -147,6 +201,47 @@ func TestAgentSkillRejectsUnknownFlag(t *testing.T) {
 	err := runner.Run([]string{"agent", "skill", "--unknown"}, strings.NewReader(""), &stdout, &bytes.Buffer{})
 	if err == nil {
 		t.Fatal("Run error = nil, want unknown flag error")
+	}
+	if stdout.String() != "" {
+		t.Fatalf("stdout = %q, want empty", stdout.String())
+	}
+}
+
+func TestAgentSkillRejectsUnknownProviderBeforePathResolution(t *testing.T) {
+	runner := Runner{deps: Dependencies{
+		UserHomeDir: func() (string, error) { return "", errors.New("UserHomeDir should not be called") },
+		Getwd:       func() (string, error) { return "", errors.New("Getwd should not be called") },
+		FindRepoRoot: func(string) (string, error) {
+			return "", errors.New("FindRepoRoot should not be called")
+		},
+	}}
+	for _, provider := range []string{"unknown", "", "Codex"} {
+		t.Run(provider, func(t *testing.T) {
+			var stdout bytes.Buffer
+			err := runner.Run([]string{"agent", "skill", "--provider", provider}, strings.NewReader(""), &stdout, &bytes.Buffer{})
+			if err == nil || !strings.Contains(err.Error(), "unsupported agent skill provider") {
+				t.Fatalf("error = %v, want unsupported provider error", err)
+			}
+			if stdout.String() != "" {
+				t.Fatalf("stdout = %q, want empty", stdout.String())
+			}
+		})
+	}
+}
+
+func TestAgentSkillRejectsProviderAndClaudeSelectorsBeforePathResolution(t *testing.T) {
+	runner := Runner{deps: Dependencies{
+		UserHomeDir: func() (string, error) { return "", errors.New("UserHomeDir should not be called") },
+		Getwd:       func() (string, error) { return "", errors.New("Getwd should not be called") },
+		FindRepoRoot: func(string) (string, error) {
+			return "", errors.New("FindRepoRoot should not be called")
+		},
+	}}
+	var stdout bytes.Buffer
+
+	err := runner.Run([]string{"agent", "skill", "--provider", "codex", "--claude"}, strings.NewReader(""), &stdout, &bytes.Buffer{})
+	if err == nil || !strings.Contains(err.Error(), "cannot use --provider with --claude") {
+		t.Fatalf("error = %v, want conflicting provider selector error", err)
 	}
 	if stdout.String() != "" {
 		t.Fatalf("stdout = %q, want empty", stdout.String())
@@ -384,7 +479,7 @@ func TestAgentSkillYesReplacesExistingTargetWithoutPrompt(t *testing.T) {
 	assertAdomiSkillContent(t, filepath.Join(targetDir, "SKILL.md"))
 }
 
-func TestAgentSkillHelpDescribesScopesClaudeAndForce(t *testing.T) {
+func TestAgentSkillHelpDescribesScopesProvidersAndReplacement(t *testing.T) {
 	runner := Runner{deps: Dependencies{}}
 	var stdout, stderr bytes.Buffer
 
@@ -395,7 +490,23 @@ func TestAgentSkillHelpDescribesScopesClaudeAndForce(t *testing.T) {
 	if stdout.String() != "" {
 		t.Fatalf("stdout = %q, want empty", stdout.String())
 	}
-	for _, want := range []string{"--global", "--project", "~/.agents/skills", "--claude", ".claude/skills", "--force", "--yes"} {
+	for _, want := range []string{
+		"--global",
+		"--project",
+		"--provider",
+		"codex",
+		"opencode",
+		"pi",
+		"github-copilot",
+		"cursor",
+		"claude",
+		"~/.agents/skills",
+		".claude/skills",
+		"--claude",
+		"compatibility alias",
+		"--force",
+		"--yes",
+	} {
 		if !strings.Contains(stderr.String(), want) {
 			t.Fatalf("stderr = %q, want %q", stderr.String(), want)
 		}
@@ -412,6 +523,17 @@ func assertAdomiSkillContent(t *testing.T, path string) {
 		if !strings.Contains(content, want) {
 			t.Fatalf("SKILL.md = %q, want %q", content, want)
 		}
+	}
+}
+
+func assertOnlySkillTargetRoot(t *testing.T, baseDir, targetRoot string) {
+	t.Helper()
+	entries, err := os.ReadDir(baseDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || entries[0].Name() != targetRoot {
+		t.Fatalf("entries under %s = %v, want only %s", baseDir, entries, targetRoot)
 	}
 }
 

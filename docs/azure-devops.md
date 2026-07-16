@@ -347,16 +347,30 @@ The HTTPS-or-loopback restriction is specific to pipeline commands; other Azure 
 
 ## Agent skill generation
 
-Generate an Adomi skill for compatible coding agents:
+Generate an Adomi skill for Codex, OpenCode, Pi, GitHub Copilot, Cursor, or Claude:
+
+| Provider | `--provider` value | Skill root |
+| --- | --- | --- |
+| [Codex](https://developers.openai.com/codex/skills/) | `codex` | `.agents/skills` |
+| [OpenCode](https://opencode.ai/docs/skills/) | `opencode` | `.agents/skills` |
+| [Pi](https://github.com/badlogic/pi-mono/blob/main/packages/coding-agent/README.md#skills) | `pi` | `.agents/skills` |
+| [GitHub Copilot](https://docs.github.com/en/copilot/concepts/agents/about-agent-skills) | `github-copilot` | `.agents/skills` |
+| [Cursor](https://cursor.com/docs/skills) | `cursor` | `.agents/skills` |
+| Claude | `claude` | `.claude/skills` |
+
+The first five providers share one portable `.agents/skills/adomi/` installation. Selecting a different shared provider resolves to the same target and does not create a provider-specific duplicate.
 
 | Command | Target |
 | --- | --- |
 | `adomi agent skill` | `~/.agents/skills/adomi/SKILL.md` |
-| `adomi agent skill --project` | `<repo>/.agents/skills/adomi/SKILL.md` |
+| `adomi agent skill --provider codex --global` | `~/.agents/skills/adomi/SKILL.md` |
+| `adomi agent skill --provider codex --project` | `<repo>/.agents/skills/adomi/SKILL.md` |
+| `adomi agent skill --provider claude` | `~/.claude/skills/adomi/SKILL.md` |
+| `adomi agent skill --provider claude --project` | `<repo>/.claude/skills/adomi/SKILL.md` |
 | `adomi agent skill --claude` | `~/.claude/skills/adomi/SKILL.md` |
 | `adomi agent skill --claude --project` | `<repo>/.claude/skills/adomi/SKILL.md` |
 
-Global is the default scope. The shared-agent location is the default target. `--project` requires a Git repository. Existing skill directories require interactive confirmation unless `--force` or `--yes` is provided; failed replacement attempts preserve the prior skill where possible.
+Global is the default scope; `--global` makes it explicit. The shared-agent location is the default target. Replace `codex` in the shared examples with `opencode`, `pi`, `github-copilot`, or `cursor` to select another supported provider. `--claude` remains a backward-compatible alias for `--provider claude`. `--project` requires a Git repository. Existing skill directories require interactive confirmation unless `--force` or `--yes` is provided; failed replacement attempts preserve the prior skill where possible.
 
 The generated skill describes configuration discovery, context-before-maintenance workflow, command outputs, and safety boundaries. It guides an agent but does not automatically run Adomi, resolve profiles, or grant authorization.
 

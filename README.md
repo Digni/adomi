@@ -2,6 +2,8 @@
 
 Adomi brings Azure DevOps context into the repository where you and your coding agent are already working.
 
+The name blends **ADO** with the French word *ami* (“friend”): Adomi is a friendly companion for your Azure DevOps work.
+
 Instead of copying source material into a chat, use the `adomi` CLI to export work item, pull request, and wiki context below `.adomi/context/`, or to return pipeline status as compact JSON. Your agent can inspect those local artifacts before planning or changing code. When you explicitly ask it to report back, Adomi also provides a small set of bounded work item and pull request maintenance commands.
 
 ## Why Adomi
@@ -23,7 +25,7 @@ The core loop is simple:
 | Workflow | Primary command | Result and boundary |
 | --- | --- | --- |
 | Configuration and credentials | `adomi config init`, `adomi ado login` | Repository or global profiles with PAT values kept in the OS keyring. |
-| Agent integration | `adomi agent skill` | Installs an Adomi skill globally or in the current project for shared-agent or Claude skill locations. Existing skills require confirmation or `--force`/`--yes` to replace. |
+| Agent integration | `adomi agent skill --provider <name>` | Installs an Adomi skill globally or in the current project for Codex, OpenCode, Pi, GitHub Copilot, Cursor, or Claude. Existing skills require confirmation or `--force`/`--yes` to replace. |
 | Work item context | `adomi ado fetch <work-item-id>` | Exports the parent chain, direct children, JSON/HTML, and attachments under `.adomi/context/work-items/`. |
 | Work item comments | `adomi ado comment <work-item-id> ...` | Adds one text comment. It cannot update fields, state, assignment, relations, attachments, or existing comments. |
 | Pull request context | `adomi ado pr fetch <pull-request-id>` | Exports PR metadata, review threads, and readable comments under `.adomi/context/pull-requests/`. |
@@ -35,20 +37,20 @@ See the [Azure DevOps reference](docs/azure-devops.md) for the complete command 
 
 ## Install
 
-Adomi currently uses a source-based Go installation. You need Git and Go 1.26.2 or newer.
+Install Adomi directly from GitHub with Go 1.26.2 or newer:
 
 ```bash
-git clone https://github.com/Digni/adomi.git
-cd adomi
-go install ./cmd/adomi
+go install github.com/Digni/adomi/cmd/adomi@latest
 adomi --help
 ```
 
 `go install` writes the binary to `GOBIN`, or to the `bin` directory below `go env GOPATH` when `GOBIN` is unset. Add that directory to your `PATH` if `adomi` is not found.
 
-To build a repository-local binary instead:
+To build a repository-local binary instead, clone the repository:
 
 ```bash
+git clone https://github.com/Digni/adomi.git
+cd adomi
 go build -o ./bin/adomi ./cmd/adomi
 ./bin/adomi --help
 ```
@@ -72,8 +74,12 @@ adomi ado login --profile company-cloud
 Optionally install the generated Adomi instructions for coding agents in this repository:
 
 ```bash
-adomi agent skill --project
+adomi agent skill --provider codex --project
 ```
+
+[Codex](https://developers.openai.com/codex/skills/), [OpenCode](https://opencode.ai/docs/skills/), [Pi](https://github.com/badlogic/pi-mono/blob/main/packages/coding-agent/README.md#skills), [GitHub Copilot](https://docs.github.com/en/copilot/concepts/agents/about-agent-skills), and [Cursor](https://cursor.com/docs/skills) use the same `.agents/skills/adomi/` installation. Select them with `--provider codex`, `opencode`, `pi`, `github-copilot`, or `cursor`; installing once serves all five. Claude uses `.claude/skills/adomi/` through `--provider claude`, and the existing `--claude` flag remains a compatible alias.
+
+Global installation is the default and can be made explicit with `--global`; `--project` installs below the current repository. If the target exists, Adomi asks before replacing it. Use `--force` or `--yes` only when replacement is intentional; failed replacement attempts preserve the previous skill where possible.
 
 Fetch a work item and inspect the path printed by Adomi:
 

@@ -18,14 +18,12 @@ Pipeline inspection additionally requires the PAT's `vso.build` read scope. Work
 
 Never put a PAT value in `.adomi/config.yaml`, a command argument, a committed file, or copied troubleshooting output.
 
-## Install from a clone
+## Install directly with Go
 
-The currently verified installation path uses the repository's Go module:
+Install the latest available version directly from the repository; a clone is not required:
 
 ```bash
-git clone https://github.com/Digni/adomi.git
-cd adomi
-go install ./cmd/adomi
+go install github.com/Digni/adomi/cmd/adomi@latest
 adomi --help
 ```
 
@@ -47,9 +45,11 @@ There is currently no Homebrew formula, package-manager package, installer scrip
 
 ## Build a repository-local binary
 
-From the clone, you can build without installing to your user-level Go binary directory:
+Clone the repository to build without installing to your user-level Go binary directory:
 
 ```bash
+git clone https://github.com/Digni/adomi.git
+cd adomi
 go build -o ./bin/adomi ./cmd/adomi
 ./bin/adomi --help
 ```
@@ -148,25 +148,42 @@ Advanced setups can use `adomi ado login --pat-ref <ref>` and the same `patRef` 
 
 ## Install the optional agent skill
 
-Adomi can generate a `SKILL.md` that teaches compatible coding agents when to fetch Azure DevOps context and where the safety boundaries are.
+Adomi can generate a `SKILL.md` that teaches supported coding agents when to fetch Azure DevOps context and where the safety boundaries are.
 
-Choose one target:
+Choose a provider and scope:
+
+| Provider | `--provider` value | Global target | Project target |
+| --- | --- | --- | --- |
+| [Codex](https://developers.openai.com/codex/skills/) | `codex` | `~/.agents/skills/adomi/SKILL.md` | `<repo>/.agents/skills/adomi/SKILL.md` |
+| [OpenCode](https://opencode.ai/docs/skills/) | `opencode` | `~/.agents/skills/adomi/SKILL.md` | `<repo>/.agents/skills/adomi/SKILL.md` |
+| [Pi](https://github.com/badlogic/pi-mono/blob/main/packages/coding-agent/README.md#skills) | `pi` | `~/.agents/skills/adomi/SKILL.md` | `<repo>/.agents/skills/adomi/SKILL.md` |
+| [GitHub Copilot](https://docs.github.com/en/copilot/concepts/agents/about-agent-skills) | `github-copilot` | `~/.agents/skills/adomi/SKILL.md` | `<repo>/.agents/skills/adomi/SKILL.md` |
+| [Cursor](https://cursor.com/docs/skills) | `cursor` | `~/.agents/skills/adomi/SKILL.md` | `<repo>/.agents/skills/adomi/SKILL.md` |
+| Claude | `claude` | `~/.claude/skills/adomi/SKILL.md` | `<repo>/.claude/skills/adomi/SKILL.md` |
+
+The first five providers share the portable `.agents/skills` target. One installation serves all five; selecting another shared provider does not create a provider-specific duplicate.
 
 ```bash
-# ~/.agents/skills/adomi/SKILL.md (default shared-agent target)
+# ~/.agents/skills/adomi/SKILL.md (global is the default scope)
 adomi agent skill
 
+# Same shared global target, with provider and scope explicit
+adomi agent skill --provider codex --global
+
 # <repo>/.agents/skills/adomi/SKILL.md
-adomi agent skill --project
+adomi agent skill --provider codex --project
 
 # ~/.claude/skills/adomi/SKILL.md
-adomi agent skill --claude
+adomi agent skill --provider claude
 
 # <repo>/.claude/skills/adomi/SKILL.md
-adomi agent skill --claude --project
+adomi agent skill --provider claude --project
+
+# Backward-compatible alias for --provider claude
+adomi agent skill --claude
 ```
 
-Global skill creation works from any directory. Project skill creation requires a Git repository. If the target already exists, Adomi asks before replacing it; use `--force` or `--yes` only when replacement is intentional.
+Replace `codex` in the shared examples with `opencode`, `pi`, `github-copilot`, or `cursor` to select another supported provider. Global skill creation works from any directory. Project skill creation requires a Git repository. If the target already exists, Adomi asks before replacing it; use `--force` or `--yes` only when replacement is intentional. Failed replacement attempts preserve the previous skill where possible.
 
 The generated skill guides agents to inspect configuration and fetch context before acting. It does not automatically choose a profile, run commands, or grant Azure DevOps permissions.
 

@@ -12,7 +12,10 @@ import (
 	"github.com/spf13/cobra"
 )
 
-const adomiSkillName = "adomi"
+const (
+	adomiSkillName               = "adomi"
+	supportedAgentSkillProviders = "codex, opencode, pi, github-copilot, cursor, claude"
+)
 
 func (r Runner) newAgentCommand(stdin io.Reader, stdout, stderr io.Writer) *cobra.Command {
 	agentCmd := &cobra.Command{
@@ -29,26 +32,37 @@ func (r Runner) newAgentCommand(stdin io.Reader, stdout, stderr io.Writer) *cobr
 
 func (r Runner) newAgentSkillCommand(stdin io.Reader, stdout, stderr io.Writer) *cobra.Command {
 	var claude bool
+	var provider string
 	var global bool
 	var project bool
 	var force bool
 	var yes bool
 	skillCmd := &cobra.Command{
-		Use:   "skill [--claude] [--global | --project] [--force | --yes]",
+		Use:   "skill [--provider <name> | --claude] [--global | --project] [--force | --yes]",
 		Short: "Create the adomi agent skill",
 		Long: "Create the adomi agent skill for Azure DevOps work. By default, skills are installed globally under ~/.agents/skills. " +
 			"Use --project to install under this repository's .agents/skills directory. " +
-			"Use --claude to target Claude's .claude/skills directory instead. " +
+			"Use --provider with one of: " + supportedAgentSkillProviders + ". " +
+			"Codex, OpenCode, Pi, GitHub Copilot, and Cursor share the .agents/skills target; Claude uses .claude/skills. " +
+			"Use --claude as a compatibility alias for --provider claude. " +
 			"Use --force or --yes to replace an existing skill without prompting.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if global && project {
 				return fmt.Errorf("cannot use --global with --project")
 			}
-			return r.runAgentSkill(agentSkillArgs{claude: claude, global: global, project: project, force: force || yes}, stdin, stdout, stderr)
+			return r.runAgentSkill(agentSkillArgs{
+				claude:      claude,
+				provider:    provider,
+				providerSet: cmd.Flags().Changed("provider"),
+				global:      global,
+				project:     project,
+				force:       force || yes,
+			}, stdin, stdout, stderr)
 		},
 	}
-	skillCmd.Flags().BoolVar(&claude, "claude", false, "install a Claude skill instead of a default shared-agent skill")
+	skillCmd.Flags().BoolVar(&claude, "claude", false, "compatibility alias for --provider claude")
+	skillCmd.Flags().StringVar(&provider, "provider", "", "coding-agent provider ("+supportedAgentSkillProviders+")")
 	skillCmd.Flags().BoolVar(&global, "global", false, "install under the user-level skills directory (default)")
 	skillCmd.Flags().BoolVar(&project, "project", false, "install under this repository's project-level skills directory")
 	skillCmd.Flags().BoolVar(&force, "force", false, "replace an existing skill without prompting")
@@ -57,13 +71,18 @@ func (r Runner) newAgentSkillCommand(stdin io.Reader, stdout, stderr io.Writer) 
 }
 
 type agentSkillArgs struct {
-	claude  bool
-	global  bool
-	project bool
-	force   bool
+	claude      bool
+	provider    string
+	providerSet bool
+	global      bool
+	project     bool
+	force       bool
 }
 
 func (r Runner) runAgentSkill(args agentSkillArgs, stdin io.Reader, stdout, stderr io.Writer) error {
+	if err := validateAgentSkillProvider(args.provider, args.providerSet, args.claude); err != nil {
+		return err
+	}
 	deps := r.dependencies()
 	skillsRoot, err := agentSkillRoot(deps, args)
 	if err != nil {
@@ -77,12 +96,27 @@ func (r Runner) runAgentSkill(args agentSkillArgs, stdin io.Reader, stdout, stde
 	return nil
 }
 
+func validateAgentSkillProvider(provider string, providerSet, claude bool) error {
+	if providerSet && claude {
+		return fmt.Errorf("cannot use --provider with --claude")
+	}
+	if !providerSet {
+		return nil
+	}
+	switch provider {
+	case "codex", "opencode", "pi", "github-copilot", "cursor", "claude":
+		return nil
+	default:
+		return fmt.Errorf("unsupported agent skill provider %q (supported: %s)", provider, supportedAgentSkillProviders)
+	}
+}
+
 func agentSkillRoot(deps Dependencies, args agentSkillArgs) (string, error) {
 	baseDir, err := agentSkillBaseDir(deps, args)
 	if err != nil {
 		return "", err
 	}
-	if args.claude {
+	if args.claude || args.provider == "claude" {
 		return filepath.Join(baseDir, ".claude", "skills"), nil
 	}
 	return filepath.Join(baseDir, ".agents", "skills"), nil
