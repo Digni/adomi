@@ -1,0 +1,298 @@
+package cli
+
+const configInitHelp = `Create an adomi configuration template.
+
+Usage:
+  adomi config init [--global]
+
+Flags:
+  --global   create the user-level configuration instead of the repository configuration
+
+stdout:
+  Prints only the created configuration file path on success.
+
+Compatibility:
+  adomi ado config init [--global] is a hidden compatibility alias for this command.
+`
+
+const adoFetchHelp = `Fetch Azure DevOps work item context.
+
+Usage:
+  adomi ado fetch <work-item-id> [--profile <profile-name>] [--global]
+
+Arguments:
+  <work-item-id>   positive Azure DevOps work item ID
+
+Flags:
+  --profile <profile-name>   select a configured Azure DevOps profile
+  --global                   use user-level configuration
+
+stdout:
+  Prints only the exported work item context directory path on success.
+`
+
+const adoPipelineHelp = `Inspect read-only Azure DevOps pipeline run status.
+
+Usage:
+  adomi ado pipeline list [--profile <profile-name>] [--global]
+  adomi ado pipeline get <run-id> [--profile <profile-name>] [--global]
+
+Scope:
+  list requests the exact inProgress runs across YAML and classic Build pipelines.
+  Pagination is a best-effort one-shot view, not a transactional snapshot.
+  get accepts a decimal Build run ID in the range 1..2147483647.
+  Both commands require a Git repository, including with --global; --profile selects a configured profile.
+  The PAT needs vso.build read scope. Pipeline endpoints must use HTTPS or loopback HTTP.
+  Loopback HTTP requests bypass configured proxies so credentials remain on-machine.
+
+stdout:
+  Success is one compact JSON value. list returns an ordered runs array; get returns one run object.
+  Every documented key is present, and unavailable result, source, timestamp, or web-link values are null.
+
+Exclusions:
+  These commands perform no polling, stage/job/environment detail lookup, mutation, or classic Release inspection.
+`
+
+const adoWikiNamespaceHelp = `Fetch Azure DevOps wiki context into the current Git repository.
+
+Usage:
+  adomi ado wiki fetch <wiki-id-or-name> --page <absolute-wiki-page-path> [--recursive] [--profile <profile-name>] [--global]
+
+The wiki identifier and --page are required. The page path must be an absolute Azure DevOps wiki path beginning with /.
+Use --recursive to include all descendant pages; otherwise only the selected page is fetched.
+--profile selects a configured Azure DevOps profile, and --global uses user-level configuration.
+A Git repository is always required because output is written below .adomi/context/wikis in that repository.
+Markdown links are preserved, but attachments and other linked resources are not downloaded. This command does not perform indexed wiki search.
+
+stdout:
+  Prints only the exported wiki context directory path on success.
+`
+
+const adoWikiFetchHelp = `Fetch Azure DevOps wiki context into the current Git repository.
+
+Usage:
+  adomi ado wiki fetch <wiki-id-or-name> --page <absolute-wiki-page-path> [--recursive] [--profile <profile-name>] [--global]
+
+Arguments:
+  <wiki-id-or-name>   required Azure DevOps wiki ID or name
+
+Flags:
+  --page <absolute-wiki-page-path>   required absolute wiki page path beginning with /
+  --recursive                       include all descendant pages
+  --profile <profile-name>          select a configured Azure DevOps profile
+  --global                          use user-level configuration
+
+Rules:
+  A Git repository is always required because output is written below .adomi/context/wikis in that repository.
+  Markdown links are preserved, but attachments and other linked resources are not downloaded.
+  This command does not perform indexed wiki search.
+
+stdout:
+  Prints only the exported wiki context directory path on success.
+`
+
+const adoWorkItemCommentHelp = `Add a comment to an Azure DevOps work item.
+
+Usage:
+  adomi ado comment <work-item-id> (--message <text> | --message-file <path>) [--profile <profile-name>] [--global] [--json]
+
+Arguments:
+  <work-item-id>   positive Azure DevOps work item ID
+
+Flags:
+  --message <text>        inline comment text
+  --message-file <path>   file containing comment text
+  --profile <profile-name>   select a configured Azure DevOps profile
+  --global                   use user-level configuration
+  --json                     print one compact JSON object
+
+Rules:
+  Provide exactly one message source: --message or --message-file.
+  No broader work item writes are exposed.
+
+stdout:
+  Prints only the created comment ID, or one JSON object when --json is used.
+`
+
+const adoWorkItemNamespaceHelp = `Manage Azure DevOps work item maintenance. Supported operations: comment.
+
+Usage:
+  adomi ado work-item comment <work-item-id> (--message <text> | --message-file <path>) [--profile <profile-name>] [--global] [--json]
+
+Arguments:
+  <work-item-id>   positive Azure DevOps work item ID
+
+Flags:
+  --message <text>        inline comment text
+  --message-file <path>   file containing comment text
+  --profile <profile-name>   select a configured Azure DevOps profile
+  --global                   use user-level configuration
+  --json                     print one compact JSON object
+
+Rules:
+  Provide exactly one message source: --message or --message-file.
+  No broader work item writes are exposed.
+
+stdout:
+  Prints only the created comment ID, or one JSON object when --json is used.
+`
+
+const adoPRFetchHelp = `Fetch Azure DevOps pull request context.
+
+Usage:
+  adomi ado pr fetch <pull-request-id> [--profile <profile-name>] [--global]
+
+Arguments:
+  <pull-request-id>   positive Azure DevOps pull request ID
+
+Flags:
+  --profile <profile-name>   select a configured Azure DevOps profile
+  --global                   use user-level configuration
+
+stdout:
+  Prints only the exported pull request context directory path on success.
+`
+
+const adoPREnsureHelp = `Create or update the active pull request for the current repository branch.
+
+Usage:
+  adomi ado pr ensure [--title <title>] [--description-file <path>] [--source <branch>] [--target <branch>] [--repository <name-or-id>] [--profile <profile-name>] [--global] [--json]
+
+Flags:
+  --title <title>            set the pull request title; required when creating a new pull request
+  --description-file <path>  read the pull request description from a non-empty file
+  --source <branch>          override the inferred source branch
+  --target <branch>          override the inferred target branch
+  --repository <name-or-id>  override the inferred Azure DevOps repository
+  --profile <profile-name>   select a configured Azure DevOps profile
+  --global                   use user-level configuration
+  --json                     print one compact JSON object
+
+Rules:
+  When no active pull request exists, create a new one; otherwise update only fields you provide.
+  No PR governance commands are exposed here.
+
+stdout:
+  Prints only the pull request ID, or one JSON object when --json is used.
+`
+
+const adoPRCommentHelp = `Create a new Azure DevOps pull request comment thread.
+
+Usage:
+  adomi ado pr comment <pull-request-id> (--message <text> | --message-file <path>) [--file <path> --line <line>] [--profile <profile-name>] [--global] [--json]
+
+Arguments:
+  <pull-request-id>   positive Azure DevOps pull request ID
+
+Flags:
+  --message <text>        inline comment text
+  --message-file <path>   file containing comment text
+  --file <path>           changed file path for an inline thread
+  --line <line>           positive right-side line number for an inline thread
+  --profile <profile-name>   select a configured Azure DevOps profile
+  --global                   use user-level configuration
+  --json                     print one compact JSON object
+
+Rules:
+  Provide exactly one message source: --message or --message-file.
+  Omit --file and --line for a PR-level thread; provide both for an inline thread.
+
+stdout:
+  Prints only the created thread ID, or one JSON object when --json is used.
+`
+
+const adoPRReplyHelp = `Reply to an existing Azure DevOps pull request thread.
+
+Usage:
+  adomi ado pr reply <pull-request-id> --thread <thread-id> (--message <text> | --message-file <path>) [--profile <profile-name>] [--global] [--json]
+
+Arguments:
+  <pull-request-id>   positive Azure DevOps pull request ID
+
+Flags:
+  --thread <thread-id>    positive thread ID to reply to
+  --message <text>        inline reply text
+  --message-file <path>   file containing reply text
+  --profile <profile-name>   select a configured Azure DevOps profile
+  --global                   use user-level configuration
+  --json                     print one compact JSON object
+
+Rules:
+  Provide exactly one message source: --message or --message-file.
+
+stdout:
+  Prints only the created comment ID, or one JSON object when --json is used.
+`
+
+const adoPRResolveHelp = `Resolve an Azure DevOps pull request thread as fixed.
+
+Usage:
+  adomi ado pr resolve <pull-request-id> --thread <thread-id> [--profile <profile-name>] [--global] [--json]
+
+Arguments:
+  <pull-request-id>   positive Azure DevOps pull request ID
+
+Flags:
+  --thread <thread-id>    positive thread ID to mark fixed
+  --profile <profile-name>   select a configured Azure DevOps profile
+  --global                   use user-level configuration
+  --json                     print one compact JSON object
+
+stdout:
+  Prints only the thread ID, or one JSON object when --json is used.
+`
+
+const adoPRReopenHelp = `Reopen an Azure DevOps pull request thread as active.
+
+Usage:
+  adomi ado pr reopen <pull-request-id> --thread <thread-id> [--profile <profile-name>] [--global] [--json]
+
+Arguments:
+  <pull-request-id>   positive Azure DevOps pull request ID
+
+Flags:
+  --thread <thread-id>    positive thread ID to mark active
+  --profile <profile-name>   select a configured Azure DevOps profile
+  --global                   use user-level configuration
+  --json                     print one compact JSON object
+
+stdout:
+  Prints only the thread ID, or one JSON object when --json is used.
+`
+
+const adoLoginHelp = `Store an Azure DevOps PAT.
+
+Usage:
+  adomi ado login (--profile <profile-name> | --pat-ref <ref>) [--global]
+
+Flags:
+  --profile <profile-name>   load the credential reference from a configured profile
+  --pat-ref <ref>            store the PAT under an explicit credential reference
+  --global                   use user-level configuration when resolving --profile
+
+Streams:
+  The secret prompt is written to stderr. This command prints no success data to stdout.
+`
+
+const adoLogoutHelp = `Delete an Azure DevOps PAT credential.
+
+Usage:
+  adomi ado logout (--profile <profile-name> | --pat-ref <ref>) [--global]
+
+Flags:
+  --profile <profile-name>   load the credential reference from a configured profile
+  --pat-ref <ref>            delete an explicit credential reference
+  --global                   use user-level configuration when resolving --profile
+`
+
+const adoProfilesListHelp = `List configured Azure DevOps profiles.
+
+Usage:
+  adomi ado profiles list [--global]
+
+Flags:
+  --global   list user-level profiles instead of repository profiles
+
+stdout:
+  Prints one profile name per line in sorted order.
+`
