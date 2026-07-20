@@ -31,7 +31,7 @@ The core loop is simple:
 | Pull request context | `adomi ado pr fetch <pull-request-id>` | Exports PR metadata, review threads, and readable comments under `.adomi/context/pull-requests/`. |
 | Pull request maintenance | `adomi ado pr ensure`, `comment`, `reply`, `resolve`, `reopen` | Maintains the active branch PR or explicit review threads. It cannot approve, reject, merge, complete, abandon, bypass policies, or manage reviewers. |
 | Wiki context | `adomi ado wiki fetch ...` | Exports one page or a recursive subtree as Markdown and metadata. It does not search wikis or download linked attachments. |
-| Pipeline status | `adomi ado pipeline list`, `get` | Returns one-shot compact JSON for in-progress Build runs or one run's overall status. It does not poll, fetch execution detail, inspect classic Release deployments, or mutate pipelines. |
+| Pipeline status | `adomi ado pipeline list`, `get` | Returns one-shot compact JSON for in-progress or the most recent (`--last <N>`) Build runs, or one run's overall status. It does not poll, fetch execution detail, inspect classic Release deployments, or mutate pipelines. |
 
 See the [Azure DevOps reference](docs/azure-devops.md) for the complete command forms, outputs, permissions, and limitations.
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"time"
 )
 
@@ -12,6 +13,7 @@ const (
 	maxPipelinePages               = 1000
 	maxPipelineRuns                = 100000
 	maxPipelineRunID               = 2147483647
+	maxRecentPipelineRuns          = 200
 )
 
 var errPipelineRunLimitExceeded = errors.New("pipeline run limit exceeded")
@@ -33,6 +35,7 @@ type PipelineRun struct {
 
 type PipelineRunReader interface {
 	ListInProgressPipelineRuns(ctx context.Context) ([]PipelineRun, error)
+	ListRecentPipelineRuns(ctx context.Context, n int) ([]PipelineRun, error)
 	GetPipelineRun(ctx context.Context, id int) (*PipelineRun, error)
 }
 
@@ -72,19 +75,60 @@ func (c *Client) ListInProgressPipelineRuns(ctx context.Context) ([]PipelineRun,
 		defer httpClient.CloseIdleConnections()
 	}
 
+	return c.listPipelineRuns(ctx, httpClient, pipelineListOptions{
+		maxRuns:           maxPipelineRuns,
+		requireInProgress: true,
+		buildURL: func(continuationToken string, _ int) string {
+			return c.pipelineRunsURL(continuationToken)
+		},
+	})
+}
+
+func (c *Client) ListRecentPipelineRuns(ctx context.Context, n int) ([]PipelineRun, error) {
+	if n < 1 || n > maxRecentPipelineRuns {
+		return nil, fmt.Errorf("recent pipeline run count must be between 1 and %d", maxRecentPipelineRuns)
+	}
+	if err := c.validatePipelineTransport(); err != nil {
+		return nil, err
+	}
+	httpClient, ownsTransport := c.pipelineHTTPClient()
+	if ownsTransport {
+		defer httpClient.CloseIdleConnections()
+	}
+
+	return c.listPipelineRuns(ctx, httpClient, pipelineListOptions{
+		maxRuns:   n,
+		stopAtMax: true,
+		buildURL: func(continuationToken string, remaining int) string {
+			return c.pipelineRecentRunsURL(continuationToken, remaining)
+		},
+	})
+}
+
+type pipelineListOptions struct {
+	maxRuns           int
+	requireInProgress bool
+	stopAtMax         bool
+	buildURL          func(continuationToken string, remaining int) string
+}
+
+func (c *Client) listPipelineRuns(ctx context.Context, httpClient *http.Client, opts pipelineListOptions) ([]PipelineRun, error) {
 	runs := make([]PipelineRun, 0)
 	seenRunIDs := make(map[int]struct{})
 	seenTokens := make(map[string]struct{})
 	continuationToken := ""
 	for page := 1; page <= maxPipelinePages; page++ {
-		body, header, err := c.pipelineGET(ctx, httpClient, c.pipelineRunsURL(continuationToken), "listing Azure DevOps pipeline runs")
+		body, header, err := c.pipelineGET(ctx, httpClient, opts.buildURL(continuationToken, opts.maxRuns-len(runs)), "listing Azure DevOps pipeline runs")
 		if err != nil {
 			return nil, err
 		}
 
-		pageRuns, err := decodePipelineRunList(body, maxPipelineRuns-len(runs))
+		pageRuns, err := decodePipelineRunList(body, opts.maxRuns-len(runs))
 		if err != nil {
 			if errors.Is(err, errPipelineRunLimitExceeded) {
+				if opts.stopAtMax {
+					return nil, fmt.Errorf("listing Azure DevOps pipeline runs: response page exceeds the requested top of %d runs", opts.maxRuns-len(runs))
+				}
 				return nil, fmt.Errorf("listing Azure DevOps pipeline runs: response exceeds maximum of %d runs", maxPipelineRuns)
 			}
 			return nil, err
@@ -94,7 +138,7 @@ func (c *Client) ListInProgressPipelineRuns(ctx context.Context) ([]PipelineRun,
 			if err != nil {
 				return nil, fmt.Errorf("listing Azure DevOps pipeline runs: invalid run at index %d: %w", i, err)
 			}
-			if run.Status != "inProgress" {
+			if opts.requireInProgress && run.Status != "inProgress" {
 				return nil, fmt.Errorf("listing Azure DevOps pipeline runs: run at index %d is not in progress", i)
 			}
 			if _, exists := seenRunIDs[run.ID]; exists {
@@ -104,6 +148,9 @@ func (c *Client) ListInProgressPipelineRuns(ctx context.Context) ([]PipelineRun,
 			runs = append(runs, run)
 		}
 
+		if opts.stopAtMax && len(runs) == opts.maxRuns {
+			return runs, nil
+		}
 		token, hasToken, err := pipelineContinuationToken(header)
 		if err != nil {
 			return nil, err

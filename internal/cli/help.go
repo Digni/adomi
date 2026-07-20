@@ -36,11 +36,12 @@ stdout:
 const adoPipelineHelp = `Inspect read-only Azure DevOps pipeline run status.
 
 Usage:
-  adomi ado pipeline list [--profile <profile-name>] [--global]
+  adomi ado pipeline list [--last <N>] [--profile <profile-name>] [--global]
   adomi ado pipeline get <run-id> [--profile <profile-name>] [--global]
 
 Scope:
-  list requests the exact inProgress runs across YAML and classic Build pipelines.
+  list without --last requests the exact inProgress runs across YAML and classic Build pipelines.
+  list --last <N> requests the N most recently queued runs in the project across any status, with N in the range 1..200.
   Pagination is a best-effort one-shot view, not a transactional snapshot.
   get accepts a decimal Build run ID in the range 1..2147483647.
   Both commands require a Git repository, including with --global; --profile selects a configured profile.

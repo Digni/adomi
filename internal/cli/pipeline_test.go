@@ -36,6 +36,60 @@ func TestADOPipelineListRejectsInvalidArgumentsBeforeDependencies(t *testing.T) 
 	}
 }
 
+func TestADOPipelineListLastRejectsInvalidArgumentsBeforeDependencies(t *testing.T) {
+	veryLargeCount := "9999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999"
+	tests := []struct {
+		name string
+		args []string
+		want string
+	}{
+		{name: "missing last value", args: []string{"ado", "pipeline", "list", "--last"}, want: "--last requires a value"},
+		{name: "flag as last value", args: []string{"ado", "pipeline", "list", "--last", "--global"}, want: "--last requires a value"},
+		{name: "blank last value", args: []string{"ado", "pipeline", "list", "--last", " \t"}, want: "--last requires a value"},
+		{name: "negative last value", args: []string{"ado", "pipeline", "list", "--last", "-1"}, want: "--last requires a value"},
+		{name: "non-decimal last value", args: []string{"ado", "pipeline", "list", "--last", "abc"}, want: "1..200"},
+		{name: "fractional last value", args: []string{"ado", "pipeline", "list", "--last", "1.5"}, want: "1..200"},
+		{name: "zero last value", args: []string{"ado", "pipeline", "list", "--last", "0"}, want: "1..200"},
+		{name: "above maximum last value", args: []string{"ado", "pipeline", "list", "--last", "201"}, want: "1..200"},
+		{name: "arbitrarily large last value", args: []string{"ado", "pipeline", "list", "--last", veryLargeCount}, want: "1..200"},
+		{name: "repeated last", args: []string{"ado", "pipeline", "list", "--last", "5", "--last", "6"}, want: "--last cannot be repeated"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assertPipelineRunRejectsBeforeDependencies(t, tt.args, tt.want)
+		})
+	}
+}
+
+func TestADOPipelineListLastParsesCountBoundaries(t *testing.T) {
+	tests := []struct {
+		name  string
+		count string
+	}{
+		{name: "minimum", count: "1"},
+		{name: "maximum", count: "200"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			validationPassed := errors.New("last validation passed")
+			runner := Runner{deps: Dependencies{
+				Getwd: func() (string, error) { return "", validationPassed },
+			}}
+			var stdout bytes.Buffer
+
+			err := runner.Run([]string{"ado", "pipeline", "list", "--last", tt.count}, strings.NewReader(""), &stdout, &bytes.Buffer{})
+			if !errors.Is(err, validationPassed) {
+				t.Fatalf("error = %v, want dependency sentinel proving --last %s parsed", err, tt.count)
+			}
+			if stdout.String() != "" {
+				t.Fatalf("stdout = %q, want empty", stdout.String())
+			}
+		})
+	}
+}
+
 func TestADOPipelineGetRejectsInvalidArgumentsBeforeDependencies(t *testing.T) {
 	veryLargeRunID := "9999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999"
 	tests := []struct {
@@ -254,6 +308,80 @@ func TestADOPipelineListPreservesRunOrderAndUsesNonNullRuns(t *testing.T) {
 	})
 }
 
+func TestADOPipelineListLastReturnsRecentRunsInOrder(t *testing.T) {
+	result := "succeeded"
+	sourceBranch := "refs/heads/feature/ci-check"
+	sourceVersion := "0123456789abcdef"
+	webURL := "https://dev.azure.com/org/project/_build/results?buildId=31"
+	queueTime := time.Date(2026, 7, 20, 8, 0, 0, 0, time.UTC)
+	startTime := time.Date(2026, 7, 20, 8, 1, 0, 0, time.UTC)
+	finishTime := time.Date(2026, 7, 20, 8, 5, 0, 0, time.UTC)
+	client := &pipelineADOClient{recentRuns: []ado.PipelineRun{
+		{
+			ID:            31,
+			PipelineID:    7,
+			PipelineName:  "CI",
+			RunNumber:     "20260720.2",
+			Status:        "completed",
+			Result:        &result,
+			SourceBranch:  &sourceBranch,
+			SourceVersion: &sourceVersion,
+			QueueTime:     &queueTime,
+			StartTime:     &startTime,
+			FinishTime:    &finishTime,
+			WebURL:        &webURL,
+		},
+		{ID: 30, PipelineID: 7, PipelineName: "CI", RunNumber: "20260720.1", Status: "inProgress"},
+	}}
+	runner := pipelineFakeRunner(t, client)
+	var stdout, stderr bytes.Buffer
+
+	err := runner.Run([]string{"ado", "pipeline", "list", "--last", "10"}, strings.NewReader(""), &stdout, &stderr)
+	if err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+	if client.recentCalls != 1 || client.gotLast != 10 {
+		t.Fatalf("ListRecentPipelineRuns calls = %d with last = %d, want 1 call with 10", client.recentCalls, client.gotLast)
+	}
+	if client.listCalls != 0 {
+		t.Fatalf("ListInProgressPipelineRuns calls = %d, want 0 when --last is set", client.listCalls)
+	}
+	want := "{\"runs\":[{\"id\":31,\"pipelineId\":7,\"pipelineName\":\"CI\",\"runNumber\":\"20260720.2\",\"status\":\"completed\",\"result\":\"succeeded\",\"sourceBranch\":\"refs/heads/feature/ci-check\",\"sourceVersion\":\"0123456789abcdef\",\"queueTime\":\"2026-07-20T08:00:00Z\",\"startTime\":\"2026-07-20T08:01:00Z\",\"finishTime\":\"2026-07-20T08:05:00Z\",\"webUrl\":\"https://dev.azure.com/org/project/_build/results?buildId=31\"},{\"id\":30,\"pipelineId\":7,\"pipelineName\":\"CI\",\"runNumber\":\"20260720.1\",\"status\":\"inProgress\",\"result\":null,\"sourceBranch\":null,\"sourceVersion\":null,\"queueTime\":null,\"startTime\":null,\"finishTime\":null,\"webUrl\":null}]}\n"
+	if stdout.String() != want {
+		t.Fatalf("stdout = %q, want %q", stdout.String(), want)
+	}
+	if stderr.String() != "" {
+		t.Fatalf("stderr = %q, want empty", stderr.String())
+	}
+}
+
+func TestADOPipelineListLastReturnsNonNullEmptyRuns(t *testing.T) {
+	runner := pipelineFakeRunner(t, &pipelineADOClient{recentRuns: nil})
+	var stdout bytes.Buffer
+
+	err := runner.Run([]string{"ado", "pipeline", "list", "--last", "1"}, strings.NewReader(""), &stdout, &bytes.Buffer{})
+	if err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+	if stdout.String() != "{\"runs\":[]}\n" {
+		t.Fatalf("stdout = %q, want non-null empty runs array", stdout.String())
+	}
+}
+
+func TestADOPipelineListLastPropagatesReaderErrorWithEmptyStdout(t *testing.T) {
+	client := &pipelineADOClient{recentErr: errors.New("recent runs unavailable")}
+	runner := pipelineFakeRunner(t, client)
+	var stdout bytes.Buffer
+
+	err := runner.Run([]string{"ado", "pipeline", "list", "--last", "10"}, strings.NewReader(""), &stdout, &bytes.Buffer{})
+	if err == nil || !strings.Contains(err.Error(), "recent runs unavailable") {
+		t.Fatalf("error = %v, want reader error propagated", err)
+	}
+	if stdout.String() != "" {
+		t.Fatalf("stdout = %q, want empty", stdout.String())
+	}
+}
+
 func TestADOPipelineGetPrintsExactNormalizedProjection(t *testing.T) {
 	result := "partiallySucceeded"
 	sourceBranch := "refs/heads/feature/pipeline-status"
@@ -413,6 +541,8 @@ func TestADOPipelineEncodingFailureLeavesStdoutEmpty(t *testing.T) {
 func assertPipelineHelpContract(t *testing.T, stderr string) {
 	t.Helper()
 	for _, want := range []string{
+		"--last",
+		"1..200",
 		"inProgress",
 		"YAML",
 		"classic Build",
@@ -535,12 +665,16 @@ func pipelineFakeRunner(t *testing.T, client ADOClient) Runner {
 
 type pipelineADOClient struct {
 	fakeADOClient
-	runs      []ado.PipelineRun
-	run       *ado.PipelineRun
-	listErr   error
-	getErr    error
-	listCalls int
-	gotRunID  int
+	runs        []ado.PipelineRun
+	run         *ado.PipelineRun
+	listErr     error
+	getErr      error
+	listCalls   int
+	gotRunID    int
+	recentRuns  []ado.PipelineRun
+	recentErr   error
+	recentCalls int
+	gotLast     int
 }
 
 func (f *pipelineADOClient) ListInProgressPipelineRuns(context.Context) ([]ado.PipelineRun, error) {
@@ -549,6 +683,15 @@ func (f *pipelineADOClient) ListInProgressPipelineRuns(context.Context) ([]ado.P
 		return nil, f.listErr
 	}
 	return f.runs, nil
+}
+
+func (f *pipelineADOClient) ListRecentPipelineRuns(_ context.Context, n int) ([]ado.PipelineRun, error) {
+	f.recentCalls++
+	f.gotLast = n
+	if f.recentErr != nil {
+		return nil, f.recentErr
+	}
+	return f.recentRuns, nil
 }
 
 func (f *pipelineADOClient) GetPipelineRun(_ context.Context, id int) (*ado.PipelineRun, error) {

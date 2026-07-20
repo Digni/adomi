@@ -64,6 +64,143 @@ func TestADOPipelineListRealWiringReturnsMultiPageCompactJSON(t *testing.T) {
 	}
 }
 
+func TestADOPipelineListLastRealWiringReturnsMultiPageMixedStatusCompactJSON(t *testing.T) {
+	const pat = "real-recent-pipeline-pat"
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		request := requests.Add(1)
+		assertRealPipelineRequest(t, r, pat)
+		if r.URL.EscapedPath() != "/Collection%20Root/My%20Project%2FArea/_apis/build/builds" {
+			t.Fatalf("request %d path = %q, want encoded Build list route", request, r.URL.EscapedPath())
+		}
+		query := r.URL.Query()
+		if query.Has("statusFilter") {
+			t.Fatalf("request %d statusFilter = %q, want absent in recent mode", request, query.Get("statusFilter"))
+		}
+		if query.Get("queryOrder") != "queueTimeDescending" || query.Get("api-version") != "7.0" {
+			t.Fatalf("request %d query = %v, want descending queue time and configured API version", request, query)
+		}
+		switch request {
+		case 1:
+			if query.Get("$top") != "3" {
+				t.Fatalf("request 1 $top = %q, want 3", query.Get("$top"))
+			}
+			if query.Get("continuationToken") != "" {
+				t.Fatalf("first continuation token = %q, want absent", query.Get("continuationToken"))
+			}
+			w.Header().Set("X-MS-ContinuationToken", "recent token/+?=")
+			fmt.Fprint(w, `{"value":[`+
+				`{"id":31,"buildNumber":"20260720.2","status":"completed","result":"succeeded","definition":{"id":7,"name":"CI"},"sourceBranch":"refs/heads/feature/ci-check","sourceVersion":"def456","queueTime":"2026-07-20T08:00:00Z","startTime":"2026-07-20T08:01:00Z","finishTime":"2026-07-20T08:05:00Z","_links":{"web":{"href":"https://dev.azure.com/org/project/_build/results?buildId=31"}}},`+
+				`{"id":30,"buildNumber":"20260720.1","status":"inProgress","result":"none","definition":{"id":7,"name":"CI"},"queueTime":"2026-07-20T07:59:00Z","_links":{}}`+
+				`]}`)
+		case 2:
+			if query.Get("$top") != "1" {
+				t.Fatalf("request 2 $top = %q, want remaining budget 1", query.Get("$top"))
+			}
+			if query.Get("continuationToken") != "recent token/+?=" {
+				t.Fatalf("second continuation token = %q, want exact opaque token", query.Get("continuationToken"))
+			}
+			w.Header().Set("X-MS-ContinuationToken", "unconsumed")
+			fmt.Fprint(w, `{"value":[{"id":29,"buildNumber":"20260719.9","status":"notStarted","definition":{"id":2,"name":"Release"},"sourceBranch":null,"sourceVersion":"","queueTime":null,"startTime":null,"finishTime":null,"_links":{"web":{"href":null}}}]}`)
+		default:
+			t.Fatalf("unexpected request %d; traversal must stop at the requested count", request)
+		}
+	}))
+	t.Cleanup(server.Close)
+	runner := pipelineRealRunner(t, server.URL+"/Collection Root", pat)
+	var stdout, stderr bytes.Buffer
+
+	err := runner.Run([]string{"ado", "pipeline", "list", "--last", "3", "--profile", "pipeline-profile"}, strings.NewReader(""), &stdout, &stderr)
+	if err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+	want := "{\"runs\":[{\"id\":31,\"pipelineId\":7,\"pipelineName\":\"CI\",\"runNumber\":\"20260720.2\",\"status\":\"completed\",\"result\":\"succeeded\",\"sourceBranch\":\"refs/heads/feature/ci-check\",\"sourceVersion\":\"def456\",\"queueTime\":\"2026-07-20T08:00:00Z\",\"startTime\":\"2026-07-20T08:01:00Z\",\"finishTime\":\"2026-07-20T08:05:00Z\",\"webUrl\":\"https://dev.azure.com/org/project/_build/results?buildId=31\"},{\"id\":30,\"pipelineId\":7,\"pipelineName\":\"CI\",\"runNumber\":\"20260720.1\",\"status\":\"inProgress\",\"result\":null,\"sourceBranch\":null,\"sourceVersion\":null,\"queueTime\":\"2026-07-20T07:59:00Z\",\"startTime\":null,\"finishTime\":null,\"webUrl\":null},{\"id\":29,\"pipelineId\":2,\"pipelineName\":\"Release\",\"runNumber\":\"20260719.9\",\"status\":\"notStarted\",\"result\":null,\"sourceBranch\":null,\"sourceVersion\":null,\"queueTime\":null,\"startTime\":null,\"finishTime\":null,\"webUrl\":null}]}\n"
+	if stdout.String() != want {
+		t.Fatalf("stdout = %q, want %q", stdout.String(), want)
+	}
+	if stderr.String() != "" {
+		t.Fatalf("stderr = %q, want empty", stderr.String())
+	}
+	if requests.Load() != 2 {
+		t.Fatalf("requests = %d, want 2", requests.Load())
+	}
+}
+
+func TestADOPipelineListLastRealWiringInconsistentCompletedRunLeavesStdoutEmpty(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, `{"value":[{"id":1,"buildNumber":"run","status":"completed","result":null,"definition":{"id":1,"name":"Pipeline"}}]}`)
+	}))
+	t.Cleanup(server.Close)
+	runner := pipelineRealRunner(t, server.URL, "inconsistent-recent-pat")
+	var stdout bytes.Buffer
+
+	err := runner.Run([]string{"ado", "pipeline", "list", "--last", "10"}, strings.NewReader(""), &stdout, &bytes.Buffer{})
+	if err == nil || !strings.Contains(err.Error(), "completed run requires a result") {
+		t.Fatalf("error = %v, want completed-result validation error", err)
+	}
+	if stdout.String() != "" {
+		t.Fatalf("stdout = %q, want empty", stdout.String())
+	}
+}
+
+func TestADOPipelineListLastRealWiringLaterPageFailureLeavesStdoutEmpty(t *testing.T) {
+	const (
+		pat        = "RECENT_LATER_PAGE_PAT_MARKER"
+		bodyMarker = "RECENT_LATER_PAGE_BODY_MARKER"
+	)
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if requests.Add(1) == 1 {
+			w.Header().Set("X-MS-ContinuationToken", "next")
+			fmt.Fprint(w, `{"value":[{"id":1,"buildNumber":"run","status":"completed","result":"succeeded","definition":{"id":1,"name":"Pipeline"}}]}`)
+			return
+		}
+		http.Error(w, bodyMarker+" <html>failure</html>", http.StatusInternalServerError)
+	}))
+	t.Cleanup(server.Close)
+	runner := pipelineRealRunner(t, server.URL, pat)
+	assertRealPipelineFailure(t, runner, []string{"ado", "pipeline", "list", "--last", "10"}, http.StatusInternalServerError, pat, bodyMarker, "<html>")
+	if requests.Load() != 2 {
+		t.Fatalf("requests = %d, want 2", requests.Load())
+	}
+}
+
+func TestADOPipelineListLastRealWiringHTTPFailureSuppressesConfidentialDiagnostics(t *testing.T) {
+	const (
+		pat            = "RECENT_HTTP_STATUS_PAT_MARKER"
+		bodyMarker     = "RECENT_HTTP_STATUS_BODY_MARKER"
+		locationMarker = "RECENT_HTTP_STATUS_LOCATION_MARKER"
+	)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Location", "/"+locationMarker)
+		w.WriteHeader(http.StatusForbidden)
+		fmt.Fprint(w, bodyMarker+" <html>forbidden</html>")
+	}))
+	t.Cleanup(server.Close)
+	runner := pipelineRealRunner(t, server.URL, pat)
+	assertRealPipelineFailure(t, runner, []string{"ado", "pipeline", "list", "--last", "10"}, http.StatusForbidden, pat, bodyMarker, locationMarker, "<html>")
+}
+
+func TestADOPipelineListLastRealWiringRedirectFailureSuppressesConfidentialDiagnostics(t *testing.T) {
+	const (
+		pat            = "RECENT_REDIRECT_PAT_MARKER"
+		locationMarker = "RECENT_REDIRECT_LOCATION_MARKER"
+	)
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if requests.Add(1) > 1 {
+			t.Fatalf("redirect followed to %s", r.URL)
+		}
+		http.Redirect(w, r, "/signin/"+locationMarker, http.StatusFound)
+	}))
+	t.Cleanup(server.Close)
+	runner := pipelineRealRunner(t, server.URL, pat)
+	assertRealPipelineFailure(t, runner, []string{"ado", "pipeline", "list", "--last", "10"}, http.StatusFound, pat, locationMarker, "<a href")
+	if requests.Load() != 1 {
+		t.Fatalf("requests = %d, want redirect not followed", requests.Load())
+	}
+}
+
 func TestADOPipelineGetRealWiringReturnsCompletedCompactJSON(t *testing.T) {
 	const pat = "real-get-pat"
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

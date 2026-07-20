@@ -113,6 +113,20 @@ func (c *Client) pipelineRunsURL(continuationToken string) string {
 	return u.String()
 }
 
+func (c *Client) pipelineRecentRunsURL(continuationToken string, remaining int) string {
+	u := *c.baseURL
+	setURLPathSegments(&u, c.config.Project, "_apis", "build", "builds")
+	query := u.Query()
+	query.Set("$top", strconv.Itoa(remaining))
+	query.Set("queryOrder", "queueTimeDescending")
+	if continuationToken != "" {
+		query.Set("continuationToken", continuationToken)
+	}
+	query.Set("api-version", c.config.APIVersion)
+	u.RawQuery = query.Encode()
+	return u.String()
+}
+
 func (c *Client) pipelineRunURL(id int) string {
 	u := *c.baseURL
 	setURLPathSegments(&u, c.config.Project, "_apis", "build", "builds", strconv.Itoa(id))

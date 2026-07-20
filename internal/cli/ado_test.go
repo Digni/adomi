@@ -148,6 +148,10 @@ func (fakeADOClient) ListInProgressPipelineRuns(context.Context) ([]ado.Pipeline
 	return []ado.PipelineRun{}, nil
 }
 
+func (fakeADOClient) ListRecentPipelineRuns(context.Context, int) ([]ado.PipelineRun, error) {
+	return []ado.PipelineRun{}, nil
+}
+
 func (fakeADOClient) GetPipelineRun(context.Context, int) (*ado.PipelineRun, error) {
 	return &ado.PipelineRun{}, nil
 }

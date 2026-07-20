@@ -71,8 +71,8 @@ func (r Runner) newADOPipelineCommand(stdout io.Writer) *cobra.Command {
 
 func (r Runner) newADOPipelineListCommand(stdout io.Writer) *cobra.Command {
 	return &cobra.Command{
-		Use:                "list [--profile <profile-name>] [--global]",
-		Short:              "List in-progress Azure DevOps pipeline runs",
+		Use:                "list [--last <N>] [--profile <profile-name>] [--global]",
+		Short:              "List in-progress or recent Azure DevOps pipeline runs",
 		Long:               adoPipelineHelp,
 		DisableFlagParsing: true,
 		RunE: func(cmd *cobra.Command, args []string) error {

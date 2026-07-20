@@ -331,7 +331,7 @@ The system SHALL treat an HTTP redirect returned to a network-backed `adomi ado`
 - **THEN** the command preserves its existing decoding, download, and success-output behavior
 
 ### Requirement: Azure DevOps pipeline run commands
-The system SHALL expose one-shot read-only pipeline run inspection through `adomi ado pipeline list [--profile <profile-name>] [--global]` and `adomi ado pipeline get <run-id> [--profile <profile-name>] [--global]`.
+The system SHALL expose one-shot read-only pipeline run inspection through `adomi ado pipeline list [--last <N>] [--profile <profile-name>] [--global]` and `adomi ado pipeline get <run-id> [--profile <profile-name>] [--global]`. Without `--last`, `pipeline list` SHALL retain its exact existing behavior of listing `inProgress` runs; with `--last <N>`, it SHALL list the N most recently queued runs across any status.
 
 #### Scenario: Pipeline namespace appears in Azure DevOps help
 - **WHEN** the user requests help for `adomi ado`
@@ -339,11 +339,15 @@ The system SHALL expose one-shot read-only pipeline run inspection through `adom
 
 #### Scenario: Pipeline command help describes scope and output
 - **WHEN** the user requests help for `adomi ado pipeline`, `adomi ado pipeline list`, or `adomi ado pipeline get`
-- **THEN** help describes the exact `inProgress` list scope across YAML and classic Build pipelines, its best-effort one-shot rather than transactional snapshot semantics, run-ID range `1..2147483647`, profile/global and repository behavior, HTTPS-or-loopback transport requirement, compact JSON fields and nullable result semantics, `vso.build` read scope, and the exclusion of polling, execution detail, mutation, and classic Release deployments
+- **THEN** help describes the exact `inProgress` default list scope and the `--last <N>` recent-runs mode across YAML and classic Build pipelines, their best-effort one-shot rather than transactional snapshot semantics, the `--last` range `1..200`, run-ID range `1..2147483647`, profile/global and repository behavior, HTTPS-or-loopback transport requirement, compact JSON fields and nullable result semantics, `vso.build` read scope, and the exclusion of polling, execution detail, mutation, and classic Release deployments
 
 #### Scenario: List in-progress pipeline runs
-- **WHEN** the user runs `adomi ado pipeline list` inside a repository with valid configuration and credentials
+- **WHEN** the user runs `adomi ado pipeline list` without `--last` inside a repository with valid configuration and credentials
 - **THEN** stdout contains exactly one compact JSON object with a `runs` array followed by one newline and stderr contains no success data
+
+#### Scenario: List recent pipeline runs
+- **WHEN** the user runs `adomi ado pipeline list --last <N>` with N from `1` through `200` inside a repository with valid configuration and credentials
+- **THEN** stdout contains exactly one compact JSON object with a `runs` array of at most N runs across any status followed by one newline and stderr contains no success data
 
 #### Scenario: Get one pipeline run
 - **WHEN** the user runs `adomi ado pipeline get <run-id>` with a run ID from `1` through `2147483647` inside a repository with valid configuration and credentials
@@ -358,8 +362,12 @@ The system SHALL expose one-shot read-only pipeline run inspection through `adom
 - **THEN** it exits non-zero before loading configuration or credentials
 
 #### Scenario: Pipeline list rejects invalid arguments early
-- **WHEN** `pipeline list` receives a positional argument, a value-less profile flag, a repeated profile/global flag, or an unknown argument
+- **WHEN** `pipeline list` receives a positional argument, a value-less `--last` or profile flag, a non-decimal, zero, negative, or above-`200` `--last` value, a `--last` value too large for numeric parsing, a repeated `--last` or profile/global flag, or an unknown argument
 - **THEN** the command exits non-zero before loading configuration or credentials and leaves stdout empty
+
+#### Scenario: Pipeline list accepts the `--last` boundaries
+- **WHEN** the `--last` value is exactly `1` or exactly `200` and all other arguments are valid
+- **THEN** argument validation succeeds with that exact value
 
 #### Scenario: Pipeline get rejects invalid arguments early
 - **WHEN** the run ID is missing, non-decimal, zero, negative, greater than `2147483647`, or too large for numeric parsing, a profile flag lacks a value, a profile/global flag is repeated, or an unknown argument is supplied

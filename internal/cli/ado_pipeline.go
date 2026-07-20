@@ -20,7 +20,12 @@ func (r Runner) runADOPipelineList(args []string, stdout io.Writer) error {
 	if err != nil {
 		return err
 	}
-	runs, err := client.ListInProgressPipelineRuns(context.Background())
+	var runs []ado.PipelineRun
+	if parsed.last > 0 {
+		runs, err = client.ListRecentPipelineRuns(context.Background(), parsed.last)
+	} else {
+		runs, err = client.ListInProgressPipelineRuns(context.Background())
+	}
 	if err != nil {
 		return err
 	}
@@ -83,9 +88,12 @@ func projectPipelineRun(run ado.PipelineRun) pipelineRunResult {
 	}
 }
 
+const maxRecentRunCount = 200
+
 type pipelineListArgs struct {
 	profile string
 	global  bool
+	last    int
 }
 
 type pipelineGetArgs struct {
@@ -95,11 +103,11 @@ type pipelineGetArgs struct {
 }
 
 func parsePipelineListArgs(args []string) (pipelineListArgs, error) {
-	profile, global, err := parsePipelineScopeArgs(args)
+	flags, err := parsePipelineScopeFlags(args, true)
 	if err != nil {
 		return pipelineListArgs{}, err
 	}
-	return pipelineListArgs{profile: profile, global: global}, nil
+	return pipelineListArgs{profile: flags.profile, global: flags.global, last: flags.last}, nil
 }
 
 func parsePipelineGetArgs(args []string) (pipelineGetArgs, error) {
@@ -110,39 +118,62 @@ func parsePipelineGetArgs(args []string) (pipelineGetArgs, error) {
 	if err != nil || runID < 1 {
 		return pipelineGetArgs{}, fmt.Errorf("pipeline run ID must be a decimal integer in the range 1..2147483647")
 	}
-	profile, global, err := parsePipelineScopeArgs(args[1:])
+	flags, err := parsePipelineScopeFlags(args[1:], false)
 	if err != nil {
 		return pipelineGetArgs{}, err
 	}
-	return pipelineGetArgs{runID: int(runID), profile: profile, global: global}, nil
+	return pipelineGetArgs{runID: int(runID), profile: flags.profile, global: flags.global}, nil
 }
 
-func parsePipelineScopeArgs(args []string) (string, bool, error) {
-	var profile string
-	var global bool
+type pipelineScopeFlags struct {
+	profile string
+	global  bool
+	last    int
+}
+
+func parsePipelineScopeFlags(args []string, allowLast bool) (pipelineScopeFlags, error) {
+	var flags pipelineScopeFlags
 	seenProfile := false
 	seenGlobal := false
+	seenLast := false
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
+		case "--last":
+			if !allowLast {
+				return pipelineScopeFlags{}, fmt.Errorf("unknown argument %q", args[i])
+			}
+			if seenLast {
+				return pipelineScopeFlags{}, fmt.Errorf("--last cannot be repeated")
+			}
+			seenLast = true
+			if i+1 >= len(args) || strings.TrimSpace(args[i+1]) == "" || strings.HasPrefix(args[i+1], "-") {
+				return pipelineScopeFlags{}, fmt.Errorf("--last requires a value")
+			}
+			last, err := strconv.ParseInt(args[i+1], 10, 32)
+			if err != nil || last < 1 || last > maxRecentRunCount {
+				return pipelineScopeFlags{}, fmt.Errorf("--last must be a decimal integer in the range 1..%d", maxRecentRunCount)
+			}
+			flags.last = int(last)
+			i++
 		case "--profile":
 			if seenProfile {
-				return "", false, fmt.Errorf("--profile cannot be repeated")
+				return pipelineScopeFlags{}, fmt.Errorf("--profile cannot be repeated")
 			}
 			seenProfile = true
 			if i+1 >= len(args) || strings.TrimSpace(args[i+1]) == "" || strings.HasPrefix(args[i+1], "-") {
-				return "", false, fmt.Errorf("--profile requires a value")
+				return pipelineScopeFlags{}, fmt.Errorf("--profile requires a value")
 			}
-			profile = args[i+1]
+			flags.profile = args[i+1]
 			i++
 		case "--global":
 			if seenGlobal {
-				return "", false, fmt.Errorf("--global cannot be repeated")
+				return pipelineScopeFlags{}, fmt.Errorf("--global cannot be repeated")
 			}
 			seenGlobal = true
-			global = true
+			flags.global = true
 		default:
-			return "", false, fmt.Errorf("unknown argument %q", args[i])
+			return pipelineScopeFlags{}, fmt.Errorf("unknown argument %q", args[i])
 		}
 	}
-	return profile, global, nil
+	return flags, nil
 }

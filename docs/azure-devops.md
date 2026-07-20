@@ -323,11 +323,13 @@ Wiki fetch is read-only. It does not perform indexed search, mutate a wiki, over
 ## Pipeline runs
 
 ```bash
-adomi ado pipeline list [--profile <profile-name>] [--global]
+adomi ado pipeline list [--last <N>] [--profile <profile-name>] [--global]
 adomi ado pipeline get <run-id> [--profile <profile-name>] [--global]
 ```
 
-`pipeline list` requests exact `inProgress` runs across YAML and classic Build pipelines and follows continuation pages. The result is a best-effort one-shot view, not a transactional snapshot; runs can change while pages are being read.
+`pipeline list` without `--last` requests exact `inProgress` runs across YAML and classic Build pipelines and follows continuation pages. With `--last <N>`, it requests the `N` most recently queued runs in the project across any status, with `N` from `1` through `200`. Both modes return a best-effort one-shot view, not a transactional snapshot; runs can change while pages are being read.
+
+To check CI for a just-pushed change, list recent runs and match your branch or commit against each run's `sourceBranch` and `sourceVersion`, then re-check a known run with `pipeline get`.
 
 `pipeline get` accepts a decimal Build run ID from `1` through `2147483647` and returns its current overall status and terminal result when available.
 
