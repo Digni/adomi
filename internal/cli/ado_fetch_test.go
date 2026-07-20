@@ -56,13 +56,13 @@ func TestADOFetchPrintsOnlyExportedPath(t *testing.T) {
 			}
 			return fakeClient, nil
 		},
-		FetchTree: func(ctx context.Context, fetcher ado.WorkItemFetcher, rootID int) (*ado.WorkItemTree, error) {
+		FetchTree: func(ctx context.Context, fetcher ado.WorkItemFetcher, rootID int, _ ado.ProgressFunc) (*ado.WorkItemTree, error) {
 			if rootID != 12345 {
 				t.Fatalf("root ID = %d, want 12345", rootID)
 			}
 			return tree, nil
 		},
-		ExportContext: func(ctx context.Context, downloader ado.AttachmentDownloader, opts ado.ExportOptions, gotTree *ado.WorkItemTree) (string, error) {
+		ExportContext: func(ctx context.Context, downloader ado.AttachmentDownloader, opts ado.ExportOptions, gotTree *ado.WorkItemTree, _ ado.ProgressFunc) (string, error) {
 			if opts.RepoRoot != "/repo" || opts.Profile != "company-cloud" || opts.Project != "MyProject" || !opts.CreatedAt.Equal(createdAt) {
 				t.Fatalf("export options = %+v", opts)
 			}
@@ -83,8 +83,45 @@ func TestADOFetchPrintsOnlyExportedPath(t *testing.T) {
 	if stdout.String() != want {
 		t.Fatalf("stdout = %q, want %q", stdout.String(), want)
 	}
-	if stderr.String() != "" {
-		t.Fatalf("stderr = %q, want empty", stderr.String())
+	if !strings.Contains(stderr.String(), "Exported") {
+		t.Fatalf("stderr = %q, want summary line", stderr.String())
+	}
+}
+
+func TestADOFetchJSONWritesExactResultAndKeepsFeedbackOnStderr(t *testing.T) {
+	tree := &ado.WorkItemTree{RootID: 12345, WorkItems: []ado.WorkItem{{ID: 12345}, {ID: 12346}}}
+	runner := Runner{deps: Dependencies{
+		PATStore:     &fakePATStore{values: map[string]string{"shared-ado": "secret-pat"}},
+		Getwd:        func() (string, error) { return "/repo/subdir", nil },
+		UserHomeDir:  func() (string, error) { return "/home/me", nil },
+		FindRepoRoot: func(string) (string, error) { return "/repo", nil },
+		LoadConfig: func(string, string, string, config.Scope) (*config.Loaded, error) {
+			return &config.Loaded{Profile: config.Profile{Name: "company", PATRef: "shared-ado", BaseURL: "https://dev.azure.com/org", Project: "Project"}}, nil
+		},
+		NewHTTPClient: func(string) (*http.Client, error) { return http.DefaultClient, nil },
+		NewADOClient:  func(*http.Client, ado.ClientConfig) (ADOClient, error) { return fakeADOClient{}, nil },
+		FetchTree: func(_ context.Context, _ ado.WorkItemFetcher, _ int, progress ado.ProgressFunc) (*ado.WorkItemTree, error) {
+			progress("Fetched work item 12345")
+			progress("Fetched work item 12346")
+			return tree, nil
+		},
+		ExportContext: func(_ context.Context, _ ado.AttachmentDownloader, _ ado.ExportOptions, _ *ado.WorkItemTree, progress ado.ProgressFunc) (string, error) {
+			progress("Downloaded first.txt")
+			progress("Downloaded second.txt")
+			return "/repo/.adomi/context/work-items/12345", nil
+		},
+	}}
+	var stdout, stderr bytes.Buffer
+
+	err := runner.Run([]string{"ado", "fetch", "12345", "--profile", "company", "--json"}, strings.NewReader(""), &stdout, &stderr)
+	if err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+	if got, want := stdout.String(), "{\"path\":\"/repo/.adomi/context/work-items/12345\",\"workItems\":2,\"attachments\":2}\n"; got != want {
+		t.Fatalf("stdout = %q, want %q", got, want)
+	}
+	if got, want := stderr.String(), "Fetched work item 12345\nFetched work item 12346\nDownloaded first.txt\nDownloaded second.txt\nExported 2 work items and 2 attachments to /repo/.adomi/context/work-items/12345\n"; got != want {
+		t.Fatalf("stderr = %q, want %q", got, want)
 	}
 }
 
@@ -238,10 +275,10 @@ func TestADOFetchGlobalUsesGlobalConfigScope(t *testing.T) {
 		},
 		NewHTTPClient: func(proxy string) (*http.Client, error) { return http.DefaultClient, nil },
 		NewADOClient:  func(httpClient *http.Client, cfg ado.ClientConfig) (ADOClient, error) { return fakeClient, nil },
-		FetchTree: func(ctx context.Context, fetcher ado.WorkItemFetcher, rootID int) (*ado.WorkItemTree, error) {
+		FetchTree: func(ctx context.Context, fetcher ado.WorkItemFetcher, rootID int, _ ado.ProgressFunc) (*ado.WorkItemTree, error) {
 			return tree, nil
 		},
-		ExportContext: func(ctx context.Context, downloader ado.AttachmentDownloader, opts ado.ExportOptions, gotTree *ado.WorkItemTree) (string, error) {
+		ExportContext: func(ctx context.Context, downloader ado.AttachmentDownloader, opts ado.ExportOptions, gotTree *ado.WorkItemTree, _ ado.ProgressFunc) (string, error) {
 			if opts.RepoRoot != "/repo" {
 				t.Fatalf("repo root = %q, want /repo", opts.RepoRoot)
 			}
@@ -332,8 +369,8 @@ azureDevOps:
 	if stdout.String() != wantOutputDir+"\n" {
 		t.Fatalf("stdout = %q, want path plus newline only", stdout.String())
 	}
-	if stderr.String() != "" {
-		t.Fatalf("stderr = %q, want empty", stderr.String())
+	if !strings.Contains(stderr.String(), "Exported") {
+		t.Fatalf("stderr = %q, want summary line", stderr.String())
 	}
 	assertLocalFile(t, filepath.Join(outputDir, "index.json"))
 	assertLocalFile(t, filepath.Join(outputDir, "tree.json"))

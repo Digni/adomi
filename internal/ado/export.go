@@ -41,7 +41,7 @@ func OutputPath(repoRoot, profile, project string, rootID int) string {
 	return filepath.Join(repoRoot, ".adomi", "context", "work-items", strconv.Itoa(rootID))
 }
 
-func ExportContext(ctx context.Context, downloader AttachmentDownloader, opts ExportOptions, tree *WorkItemTree) (string, error) {
+func ExportContext(ctx context.Context, downloader AttachmentDownloader, opts ExportOptions, tree *WorkItemTree, progress ProgressFunc) (string, error) {
 	if tree == nil {
 		return "", fmt.Errorf("work item tree is required")
 	}
@@ -62,7 +62,7 @@ func ExportContext(ctx context.Context, downloader AttachmentDownloader, opts Ex
 
 	if downloader != nil {
 		for _, item := range tree.WorkItems {
-			if _, err := DownloadAttachments(ctx, downloader, outputDir, item); err != nil {
+			if _, err := DownloadAttachments(ctx, downloader, outputDir, item, progress); err != nil {
 				return "", err
 			}
 		}

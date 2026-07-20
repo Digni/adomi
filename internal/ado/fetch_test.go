@@ -16,7 +16,7 @@ func TestFetchTreeWalksParentsUntilEpic(t *testing.T) {
 		10000: {ID: 10000, Fields: map[string]any{"System.WorkItemType": "Epic", "System.Title": "Epic title"}},
 	}}
 
-	tree, err := FetchTree(context.Background(), fetcher, 12345)
+	tree, err := FetchTree(context.Background(), fetcher, 12345, nil)
 	if err != nil {
 		t.Fatalf("FetchTree returned error: %v", err)
 	}
@@ -36,7 +36,10 @@ func TestFetchTreeIncludesRootParentChainAndDirectChildren(t *testing.T) {
 		12347: {ID: 12347, Fields: map[string]any{"System.WorkItemType": "Task", "System.Title": "Second child"}},
 	}}
 
-	tree, err := FetchTree(context.Background(), fetcher, 12345)
+	var progress []string
+	tree, err := FetchTree(context.Background(), fetcher, 12345, func(message string) {
+		progress = append(progress, message)
+	})
 	if err != nil {
 		t.Fatalf("FetchTree returned error: %v", err)
 	}
@@ -45,6 +48,15 @@ func TestFetchTreeIncludesRootParentChainAndDirectChildren(t *testing.T) {
 	}
 	if tree.EpicID != 10000 {
 		t.Fatalf("EpicID = %d, want 10000", tree.EpicID)
+	}
+	wantProgress := []string{
+		"Fetching work item 12345 (parent chain)",
+		"Fetching work item 10000 (parent chain)",
+		"Fetching child work item 12346",
+		"Fetching child work item 12347",
+	}
+	if !reflect.DeepEqual(progress, wantProgress) {
+		t.Fatalf("progress = %q, want %q", progress, wantProgress)
 	}
 }
 
@@ -59,7 +71,7 @@ func TestFetchTreeSkipsChildRelationsAlreadyVisited(t *testing.T) {
 		calls: calls,
 	}
 
-	tree, err := FetchTree(context.Background(), fetcher, 1)
+	tree, err := FetchTree(context.Background(), fetcher, 1, nil)
 	if err != nil {
 		t.Fatalf("FetchTree returned error: %v", err)
 	}
@@ -83,7 +95,7 @@ func TestFetchTreeReturnsMalformedChildRelationError(t *testing.T) {
 		},
 	}}
 
-	_, err := FetchTree(context.Background(), fetcher, 1)
+	_, err := FetchTree(context.Background(), fetcher, 1, nil)
 	if err == nil {
 		t.Fatal("FetchTree error = nil, want child relation parse error")
 	}
@@ -98,7 +110,7 @@ func TestFetchTreeReturnsChildFetchError(t *testing.T) {
 		errs:  map[int]error{2: errors.New("boom")},
 	}
 
-	_, err := FetchTree(context.Background(), fetcher, 1)
+	_, err := FetchTree(context.Background(), fetcher, 1, nil)
 	if err == nil {
 		t.Fatal("FetchTree error = nil, want child fetch error")
 	}
@@ -112,7 +124,7 @@ func TestFetchTreeStopsWhenNoParentExists(t *testing.T) {
 		12345: {ID: 12345, Fields: map[string]any{"System.WorkItemType": "Task"}},
 	}}
 
-	tree, err := FetchTree(context.Background(), fetcher, 12345)
+	tree, err := FetchTree(context.Background(), fetcher, 12345, nil)
 	if err != nil {
 		t.Fatalf("FetchTree returned error: %v", err)
 	}
@@ -130,7 +142,7 @@ func TestFetchTreeStopsWhenParentAlreadyVisited(t *testing.T) {
 		2: workItemWithParent(2, "User Story", 1),
 	}}
 
-	tree, err := FetchTree(context.Background(), fetcher, 1)
+	tree, err := FetchTree(context.Background(), fetcher, 1, nil)
 	if err != nil {
 		t.Fatalf("FetchTree returned error: %v", err)
 	}
@@ -145,7 +157,7 @@ func TestFetchTreeReturnsFetchError(t *testing.T) {
 		errs:  map[int]error{2: errors.New("boom")},
 	}
 
-	_, err := FetchTree(context.Background(), fetcher, 1)
+	_, err := FetchTree(context.Background(), fetcher, 1, nil)
 	if err == nil {
 		t.Fatal("FetchTree error = nil, want error")
 	}

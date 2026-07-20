@@ -126,7 +126,7 @@ func TestADOWikiADOClientFailureLeavesStdoutEmpty(t *testing.T) {
 
 func TestADOWikiFetchFailureLeavesStdoutEmpty(t *testing.T) {
 	runner := wikiFakeRunner(t, fakeADOClient{})
-	runner.deps.FetchWikiContext = func(ctx context.Context, fetcher ado.WikiFetcher, wikiIdentifier, pagePath string, recursive bool) (*ado.WikiContext, error) {
+	runner.deps.FetchWikiContext = func(ctx context.Context, fetcher ado.WikiFetcher, wikiIdentifier, pagePath string, recursive bool, _ ado.ProgressFunc) (*ado.WikiContext, error) {
 		if wikiIdentifier != "Engineering/Docs" || pagePath != "/Guide & Setup" || !recursive {
 			t.Fatalf("fetch selection = %q %q %t", wikiIdentifier, pagePath, recursive)
 		}
@@ -150,7 +150,7 @@ func TestADOWikiExportFailureLeavesStdoutEmpty(t *testing.T) {
 		Pages:         []ado.WikiPage{{Path: "/Guide"}},
 	}
 	runner := wikiFakeRunner(t, fakeADOClient{})
-	runner.deps.FetchWikiContext = func(context.Context, ado.WikiFetcher, string, string, bool) (*ado.WikiContext, error) {
+	runner.deps.FetchWikiContext = func(_ context.Context, _ ado.WikiFetcher, _ string, _ string, _ bool, _ ado.ProgressFunc) (*ado.WikiContext, error) {
 		return wikiContext, nil
 	}
 	runner.deps.ExportWikiContext = func(opts ado.WikiExportOptions, gotContext *ado.WikiContext) (string, error) {

@@ -46,7 +46,7 @@ type WikiPageIndex struct {
 	MarkdownPath string `json:"markdownPath"`
 }
 
-func FetchWikiContext(ctx context.Context, fetcher WikiFetcher, wikiIdentifier, pagePath string, recursive bool) (*WikiContext, error) {
+func FetchWikiContext(ctx context.Context, fetcher WikiFetcher, wikiIdentifier, pagePath string, recursive bool, progress ProgressFunc) (*WikiContext, error) {
 	if !strings.HasPrefix(pagePath, "/") {
 		return nil, fmt.Errorf("wiki page path must be absolute")
 	}
@@ -78,6 +78,7 @@ func FetchWikiContext(ctx context.Context, fetcher WikiFetcher, wikiIdentifier, 
 
 	pages := make([]WikiPage, 0, len(paths))
 	for _, path := range paths {
+		progress.report(fmt.Sprintf("Fetching wiki page %q", path))
 		page, err := fetcher.FetchWikiPage(ctx, wiki.ID, WikiPageFetchOptions{
 			Path:           path,
 			IncludeContent: true,

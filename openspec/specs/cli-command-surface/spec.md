@@ -185,7 +185,7 @@ The system SHALL download Azure DevOps work item attachments for every work item
 
 ### Requirement: CLI stream behavior
 
-The system SHALL keep stdout reserved for successful command data and stderr reserved for prompts, help, usage, and errors.
+The system SHALL keep stdout reserved for successful command result data. stderr SHALL carry prompts, help, usage, and errors, and MAY additionally carry status, progress, confirmation, and summary lines as defined by the `cli-feedback` capability. Result data (paths, IDs, JSON result objects, profile lists) SHALL never be written to stderr; feedback lines SHALL never be written to stdout.
 
 #### Scenario: Successful fetch stdout
 - **WHEN** `adomi ado fetch <work-item-id>` succeeds
@@ -221,11 +221,11 @@ The system SHALL keep stdout reserved for successful command data and stderr res
 
 #### Scenario: Work item write JSON stdout
 - **WHEN** a work item comment command succeeds with `--json`
-- **THEN** stdout contains one JSON object followed by a newline and stderr does not contain success data
+- **THEN** stdout contains one JSON object followed by a newline and stderr contains no result data
 
 #### Scenario: Pull request write JSON stdout
 - **WHEN** a pull request maintenance command succeeds with `--json`
-- **THEN** stdout contains one JSON object followed by a newline and stderr does not contain success data
+- **THEN** stdout contains one JSON object followed by a newline and stderr contains no result data
 
 #### Scenario: Work item write validation error leaves stdout empty
 - **WHEN** a work item comment command receives invalid arguments
@@ -245,7 +245,7 @@ The system SHALL keep stdout reserved for successful command data and stderr res
 
 #### Scenario: Agent skill success stdout
 - **WHEN** the user successfully runs `adomi agent skill`
-- **THEN** stdout contains only the created skill directory path and stderr does not contain success data
+- **THEN** stdout contains only the created skill directory path and stderr contains no result data
 
 #### Scenario: Agent skill replacement prompt
 - **WHEN** the user runs `adomi agent skill` and the target skill already exists

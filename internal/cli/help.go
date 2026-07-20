@@ -18,7 +18,7 @@ Compatibility:
 const adoFetchHelp = `Fetch Azure DevOps work item context.
 
 Usage:
-  adomi ado fetch <work-item-id> [--profile <profile-name>] [--global]
+  adomi ado fetch <work-item-id> [--profile <profile-name>] [--global] [--json]
 
 Arguments:
   <work-item-id>   positive Azure DevOps work item ID
@@ -26,9 +26,11 @@ Arguments:
 Flags:
   --profile <profile-name>   select a configured Azure DevOps profile
   --global                   use user-level configuration
+  --json                     print one compact JSON object with path, work item count, and attachment count
 
 stdout:
-  Prints only the exported work item context directory path on success.
+  Prints only the exported work item context directory path on success, or one JSON object with --json.
+  Progress and summary lines are written to stderr.
 `
 
 const adoPipelineHelp = `Inspect read-only Azure DevOps pipeline run status.
@@ -56,22 +58,23 @@ Exclusions:
 const adoWikiNamespaceHelp = `Fetch Azure DevOps wiki context into the current Git repository.
 
 Usage:
-  adomi ado wiki fetch <wiki-id-or-name> --page <absolute-wiki-page-path> [--recursive] [--profile <profile-name>] [--global]
+  adomi ado wiki fetch <wiki-id-or-name> --page <absolute-wiki-page-path> [--recursive] [--profile <profile-name>] [--global] [--json]
 
 The wiki identifier and --page are required. The page path must be an absolute Azure DevOps wiki path beginning with /.
 Use --recursive to include all descendant pages; otherwise only the selected page is fetched.
---profile selects a configured Azure DevOps profile, and --global uses user-level configuration.
+--profile selects a configured Azure DevOps profile, --global uses user-level configuration, and --json writes one compact result object to stdout.
 A Git repository is always required because output is written below .adomi/context/wikis in that repository.
 Markdown links are preserved, but attachments and other linked resources are not downloaded. This command does not perform indexed wiki search.
 
 stdout:
-  Prints only the exported wiki context directory path on success.
+  Prints only the exported wiki context directory path on success, or one JSON object with --json.
+  Progress and summary lines are written to stderr.
 `
 
 const adoWikiFetchHelp = `Fetch Azure DevOps wiki context into the current Git repository.
 
 Usage:
-  adomi ado wiki fetch <wiki-id-or-name> --page <absolute-wiki-page-path> [--recursive] [--profile <profile-name>] [--global]
+  adomi ado wiki fetch <wiki-id-or-name> --page <absolute-wiki-page-path> [--recursive] [--profile <profile-name>] [--global] [--json]
 
 Arguments:
   <wiki-id-or-name>   required Azure DevOps wiki ID or name
@@ -81,6 +84,7 @@ Flags:
   --recursive                       include all descendant pages
   --profile <profile-name>          select a configured Azure DevOps profile
   --global                          use user-level configuration
+  --json                            print one compact JSON object with path and page count
 
 Rules:
   A Git repository is always required because output is written below .adomi/context/wikis in that repository.
@@ -88,7 +92,8 @@ Rules:
   This command does not perform indexed wiki search.
 
 stdout:
-  Prints only the exported wiki context directory path on success.
+  Prints only the exported wiki context directory path on success, or one JSON object with --json.
+  Progress and summary lines are written to stderr.
 `
 
 const adoWorkItemCommentHelp = `Add a comment to an Azure DevOps work item.
@@ -140,7 +145,7 @@ stdout:
 const adoPRFetchHelp = `Fetch Azure DevOps pull request context.
 
 Usage:
-  adomi ado pr fetch <pull-request-id> [--profile <profile-name>] [--global]
+  adomi ado pr fetch <pull-request-id> [--profile <profile-name>] [--global] [--json]
 
 Arguments:
   <pull-request-id>   positive Azure DevOps pull request ID
@@ -148,9 +153,11 @@ Arguments:
 Flags:
   --profile <profile-name>   select a configured Azure DevOps profile
   --global                   use user-level configuration
+  --json                     print one compact JSON object with path, threadCount, and commentCount
 
 stdout:
-  Prints only the exported pull request context directory path on success.
+  Prints only the exported pull request context directory path on success, or one JSON object with --json.
+  Progress and summary lines are written to stderr.
 `
 
 const adoPREnsureHelp = `Create or update the active pull request for the current repository branch.
@@ -263,26 +270,33 @@ stdout:
 const adoLoginHelp = `Store an Azure DevOps PAT.
 
 Usage:
-  adomi ado login (--profile <profile-name> | --pat-ref <ref>) [--global]
+  adomi ado login (--profile <profile-name> | --pat-ref <ref>) [--global] [--json]
 
 Flags:
   --profile <profile-name>   load the credential reference from a configured profile
   --pat-ref <ref>            store the PAT under an explicit credential reference
   --global                   use user-level configuration when resolving --profile
+  --json                     print one compact JSON object with action and credentialRef
 
 Streams:
-  The secret prompt is written to stderr. This command prints no success data to stdout.
+  The secret prompt is written to stderr. Confirmation lines appear on stderr.
+  With --json, the JSON result is written to stdout.
 `
 
 const adoLogoutHelp = `Delete an Azure DevOps PAT credential.
 
 Usage:
-  adomi ado logout (--profile <profile-name> | --pat-ref <ref>) [--global]
+  adomi ado logout (--profile <profile-name> | --pat-ref <ref>) [--global] [--json]
 
 Flags:
   --profile <profile-name>   load the credential reference from a configured profile
   --pat-ref <ref>            delete an explicit credential reference
   --global                   use user-level configuration when resolving --profile
+  --json                     print one compact JSON object with action and credentialRef
+
+Streams:
+  Confirmation lines appear on stderr and default stdout is empty.
+  With --json, the JSON result is written to stdout.
 `
 
 const adoProfilesListHelp = `List configured Azure DevOps profiles.

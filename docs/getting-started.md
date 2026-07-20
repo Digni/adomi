@@ -128,7 +128,7 @@ For a profile in global configuration:
 adomi ado login --profile company-cloud --global
 ```
 
-Adomi prompts for the secret through stderr, hides terminal input where supported, stores the PAT in the OS keyring, and writes no success value to stdout. It never adds the PAT to YAML.
+Adomi prompts for the secret through stderr, hides terminal input where supported, stores the PAT in the OS keyring, and confirms the stored credential reference on stderr. Default stdout stays empty; add `--json` for a compact stdout result with `action` and `credentialRef`. It never adds the PAT to YAML.
 
 You can inspect configured profile names without exposing credentials:
 
@@ -199,6 +199,8 @@ WORK_ITEM_CONTEXT=$(adomi ado fetch 12345)
 ls "$WORK_ITEM_CONTEXT"
 ```
 
+Progress and the final export summary remain visible on stderr while the shell captures only the path from stdout. Add `--json` when an agent or script needs the path plus work-item and attachment counts as one structured result.
+
 The printed directory is `.adomi/context/work-items/12345/` below the repository root. It can contain:
 
 ```text
@@ -220,6 +222,8 @@ cd /path/to/your/git-repository
 PR_CONTEXT=$(adomi ado pr fetch 42)
 ls "$PR_CONTEXT"
 ```
+
+Pull-request fetches use the same stream contract: progress and the summary go to stderr; default stdout is only the path, or a compact result object with `--json`.
 
 The printed directory is `.adomi/context/pull-requests/42/` and contains PR metadata, thread JSON, per-thread files, and `comments.md`. Read that context before changing code or maintaining review threads.
 

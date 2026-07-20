@@ -100,7 +100,7 @@ adomi ado login --pat-ref shared-ado-pat
 adomi ado logout --pat-ref shared-ado-pat
 ```
 
-Login prompts through stderr, hides terminal input where supported, stores the PAT in the operating system keyring, and prints no success value to stdout. The YAML schema contains only `patRef`, never the PAT itself.
+Login prompts through stderr, hides terminal input where supported, stores the PAT in the operating system keyring, and confirms the stored credential reference on stderr. Default stdout remains empty. Add `--json` to login or logout for a compact stdout result containing `action` and `credentialRef`. The YAML schema contains only `patRef`, never the PAT itself.
 
 Read operations require permission to read their requested Azure DevOps resource. Work item comments require work item write permission; PR maintenance requires appropriate PR and review-thread write permissions. Pipeline inspection has one repository-confirmed exact scope requirement: `vso.build` read.
 
@@ -108,15 +108,17 @@ Read operations require permission to read their requested Azure DevOps resource
 
 Adomi reserves stdout for successful command data:
 
-- Fetch commands print only the exported directory path.
+- Fetch commands print only the exported directory path by default. With `--json`, they print one compact result object instead.
 - Config initialization and agent-skill creation print only the created path.
 - Profile listing prints one sorted profile name per line.
-- Login and logout print no success data.
+- Login and logout leave stdout empty by default. With `--json`, they print one compact result object.
 - Plain maintenance commands print only the created or maintained ID.
 - Maintenance `--json` forms print one compact JSON object followed by a newline.
 - Pipeline commands print one compact JSON value followed by a newline.
 
-Help, prompts, validation errors, diagnostics, and Azure DevOps or network errors use stderr and leave stdout without success data. This makes path capture safe:
+Successful login/logout confirmations, fetch progress, and fetch summaries use stderr. Help, prompts, validation errors, diagnostics, and Azure DevOps or network errors also use stderr. Determine success from the exit status rather than whether stderr is empty.
+
+Because fetch result data remains isolated on stdout, path capture stays safe even while progress is visible in the terminal:
 
 ```bash
 CONTEXT=$(adomi ado fetch 12345)
@@ -129,7 +131,7 @@ Successful context fetches replace the previous bundle for the same work item, p
 ### Fetch context
 
 ```bash
-adomi ado fetch <work-item-id> [--profile <profile-name>] [--global]
+adomi ado fetch <work-item-id> [--profile <profile-name>] [--global] [--json]
 ```
 
 The positive work item ID is required. Adomi fetches:
@@ -141,11 +143,19 @@ The positive work item ID is required. Adomi fetches:
 
 It does not recursively fetch every descendant.
 
-Success prints a path below:
+Without `--json`, success prints a path below:
 
 ```text
 .adomi/context/work-items/<work-item-id>/
 ```
+
+With `--json`, success instead prints:
+
+```json
+{"path":".adomi/context/work-items/12345","workItems":3,"attachments":2}
+```
+
+Progress is reported on stderr as each work item is fetched and immediately after each attachment file is written. A final stderr summary reports the exported work-item and attachment counts.
 
 The bundle contains:
 
@@ -183,16 +193,24 @@ Work item maintenance is text-comment only. Adomi does not update fields, state,
 ### Fetch context
 
 ```bash
-adomi ado pr fetch <pull-request-id> [--profile <profile-name>] [--global]
+adomi ado pr fetch <pull-request-id> [--profile <profile-name>] [--global] [--json]
 ```
 
 The compatibility form `adomi ado pr <pull-request-id>` performs the same fetch.
 
-Success prints a path below:
+Without `--json`, success prints a path below:
 
 ```text
 .adomi/context/pull-requests/<pull-request-id>/
 ```
+
+With `--json`, success instead prints `path`, `threadCount`, and `commentCount`:
+
+```json
+{"path":".adomi/context/pull-requests/42","threadCount":3,"commentCount":11}
+```
+
+Pull-request bundle progress and the final export summary are written to stderr.
 
 The bundle contains:
 
@@ -276,12 +294,18 @@ It does not approve, reject, merge, complete, abandon, set auto-complete, bypass
 adomi ado wiki fetch <wiki-id-or-name> \
   --page <absolute-wiki-page-path> \
   [--recursive] \
-  [--profile <profile-name>] [--global]
+  [--profile <profile-name>] [--global] [--json]
 ```
 
 The wiki identifier and an absolute page path beginning with `/` are required. By default Adomi fetches only that page. `--recursive` includes the page and all descendants returned below it.
 
-Success prints the exact bundle path below `.adomi/context/wikis/`. The final directory component is a safe encoded representation of the canonical wiki ID, so use stdout rather than constructing it yourself.
+Without `--json`, success prints the exact bundle path below `.adomi/context/wikis/`. The final directory component is a safe encoded representation of the canonical wiki ID, so use stdout rather than constructing it yourself. With `--json`, stdout instead contains `path` and `pages`:
+
+```json
+{"path":".adomi/context/wikis/<safe-wiki-id>","pages":5}
+```
+
+Page progress and the final export summary are written to stderr.
 
 The bundle contains:
 

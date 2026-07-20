@@ -43,12 +43,15 @@ func TestADOWikiNamespaceHelpDescribesFetchContract(t *testing.T) {
 		"--recursive",
 		"--profile",
 		"--global",
+		"--json",
 		"Git repository",
 		".adomi/context/wikis",
 		"attachments",
 		"search",
 		"stdout",
 		"directory path",
+		"Progress and summary",
+		"stderr",
 	} {
 		if !strings.Contains(stderr, want) {
 			t.Fatalf("stderr = %q, want %q", stderr, want)
@@ -63,16 +66,57 @@ func TestADOWikiFetchHelpDescribesSelectionAndOutput(t *testing.T) {
 		"--recursive",
 		"--profile",
 		"--global",
+		"--json",
 		"Git repository",
 		".adomi/context/wikis",
 		"attachments",
 		"search",
 		"stdout",
 		"directory path",
+		"Progress and summary",
+		"stderr",
 	} {
 		if !strings.Contains(stderr, want) {
 			t.Fatalf("stderr = %q, want %q", stderr, want)
 		}
+	}
+}
+
+func TestADOWikiFetchJSONWritesExactResultAndKeepsFeedbackOnStderr(t *testing.T) {
+	wikiContext := &ado.WikiContext{
+		Wiki:  &ado.Wiki{ID: "wiki-id", Name: "Engineering"},
+		Pages: []ado.WikiPage{{Path: "/Guide"}, {Path: "/Guide/Setup"}},
+	}
+	runner := Runner{deps: Dependencies{
+		PATStore:     &fakePATStore{values: map[string]string{"shared-ado": "secret-pat"}},
+		Getwd:        func() (string, error) { return "/repo/subdir", nil },
+		UserHomeDir:  func() (string, error) { return "/home/me", nil },
+		FindRepoRoot: func(string) (string, error) { return "/repo", nil },
+		LoadConfig: func(string, string, string, config.Scope) (*config.Loaded, error) {
+			return &config.Loaded{Profile: config.Profile{Name: "company", PATRef: "shared-ado", BaseURL: "https://dev.azure.com/org", Project: "Project"}}, nil
+		},
+		NewHTTPClient: func(string) (*http.Client, error) { return http.DefaultClient, nil },
+		NewADOClient:  func(*http.Client, ado.ClientConfig) (ADOClient, error) { return fakeADOClient{}, nil },
+		FetchWikiContext: func(_ context.Context, _ ado.WikiFetcher, _, _ string, _ bool, progress ado.ProgressFunc) (*ado.WikiContext, error) {
+			progress("Fetched wiki page /Guide")
+			progress("Fetched wiki page /Guide/Setup")
+			return wikiContext, nil
+		},
+		ExportWikiContext: func(ado.WikiExportOptions, *ado.WikiContext) (string, error) {
+			return "/repo/.adomi/context/wikis/wiki-id", nil
+		},
+	}}
+	var stdout, stderr bytes.Buffer
+
+	err := runner.Run([]string{"ado", "wiki", "fetch", "Engineering", "--page", "/Guide", "--recursive", "--profile", "company", "--json"}, strings.NewReader(""), &stdout, &stderr)
+	if err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+	if got, want := stdout.String(), "{\"path\":\"/repo/.adomi/context/wikis/wiki-id\",\"pages\":2}\n"; got != want {
+		t.Fatalf("stdout = %q, want %q", got, want)
+	}
+	if got, want := stderr.String(), "Fetched wiki page /Guide\nFetched wiki page /Guide/Setup\nExported 2 wiki pages to /repo/.adomi/context/wikis/wiki-id\n"; got != want {
+		t.Fatalf("stderr = %q, want %q", got, want)
 	}
 }
 
@@ -200,7 +244,7 @@ func TestADOWikiParsesSelectionAndPrintsOnlyExportedPath(t *testing.T) {
 					}
 					return fakeClient, nil
 				},
-				FetchWikiContext: func(ctx context.Context, fetcher ado.WikiFetcher, wikiIdentifier, pagePath string, recursive bool) (*ado.WikiContext, error) {
+				FetchWikiContext: func(ctx context.Context, fetcher ado.WikiFetcher, wikiIdentifier, pagePath string, recursive bool, _ ado.ProgressFunc) (*ado.WikiContext, error) {
 					if _, ok := fetcher.(fakeADOClient); !ok {
 						t.Fatalf("fetcher = %T, want fakeADOClient", fetcher)
 					}
@@ -229,8 +273,11 @@ func TestADOWikiParsesSelectionAndPrintsOnlyExportedPath(t *testing.T) {
 			if stdout.String() != "/repo/.adomi/context/wikis/canonical-wiki\n" {
 				t.Fatalf("stdout = %q, want exported path only", stdout.String())
 			}
-			if stderr.String() != "" {
-				t.Fatalf("stderr = %q, want empty", stderr.String())
+			if !strings.Contains(stderr.String(), "Exported") {
+				if stderr.String() == "" {
+					t.Fatalf("stderr empty, want feedback")
+				}
+				t.Fatalf("stderr = %q, want summary line", stderr.String())
 			}
 		})
 	}
@@ -312,8 +359,11 @@ func TestADOWikiRealWiringExportsRecursiveContext(t *testing.T) {
 	if stdout.String() != wantOutputDir+"\n" {
 		t.Fatalf("stdout = %q, want path plus newline only", stdout.String())
 	}
-	if stderr.String() != "" {
-		t.Fatalf("stderr = %q, want empty", stderr.String())
+	if !strings.Contains(stderr.String(), "Exported") {
+		if stderr.String() == "" {
+			t.Fatalf("stderr empty, want feedback")
+		}
+		t.Fatalf("stderr = %q, want summary line", stderr.String())
 	}
 	wantRequests := []string{
 		"resolve",

@@ -41,14 +41,14 @@ func (r Runner) newADOCommand(stdin io.Reader, stdout, stderr io.Writer) *cobra.
 		},
 	}
 	adoCmd.AddCommand(
-		r.newADOFetchCommand(stdout),
+		r.newADOFetchCommand(stdout, stderr),
 		r.newADOWorkItemCommentCommand(stdout),
 		r.newADOWorkItemCommand(stdout),
-		r.newADOPullRequestCommand(stdout),
-		r.newADOWikiCommand(stdout),
+		r.newADOPullRequestCommand(stdout, stderr),
+		r.newADOWikiCommand(stdout, stderr),
 		r.newADOPipelineCommand(stdout),
-		r.newADOLoginCommand(stdin, stderr),
-		r.newADOLogoutCommand(),
+		r.newADOLoginCommand(stdin, stdout, stderr),
+		r.newADOLogoutCommand(stdout, stderr),
 		r.newADOProfilesCommand(stdout),
 		r.newADOConfigAliasCommand(stdout),
 	)
@@ -99,19 +99,19 @@ func (r Runner) newADOPipelineGetCommand(stdout io.Writer) *cobra.Command {
 	}
 }
 
-func (r Runner) newADOWikiCommand(stdout io.Writer) *cobra.Command {
+func (r Runner) newADOWikiCommand(stdout, stderr io.Writer) *cobra.Command {
 	wikiCmd := &cobra.Command{
 		Use:   "wiki",
 		Short: "Fetch Azure DevOps wiki context",
 		Long:  adoWikiNamespaceHelp,
 	}
-	wikiCmd.AddCommand(r.newADOWikiFetchCommand(stdout))
+	wikiCmd.AddCommand(r.newADOWikiFetchCommand(stdout, stderr))
 	return wikiCmd
 }
 
-func (r Runner) newADOWikiFetchCommand(stdout io.Writer) *cobra.Command {
+func (r Runner) newADOWikiFetchCommand(stdout, stderr io.Writer) *cobra.Command {
 	return &cobra.Command{
-		Use:                "fetch <wiki-id-or-name> --page <absolute-wiki-page-path> [--recursive] [--profile <profile-name>] [--global]",
+		Use:                "fetch <wiki-id-or-name> --page <absolute-wiki-page-path> [--recursive] [--profile <profile-name>] [--global] [--json]",
 		Short:              "Fetch Azure DevOps wiki context",
 		Long:               adoWikiFetchHelp,
 		DisableFlagParsing: true,
@@ -119,14 +119,14 @@ func (r Runner) newADOWikiFetchCommand(stdout io.Writer) *cobra.Command {
 			if isHelpRequest(args) {
 				return writeCommandHelp(cmd, adoWikiFetchHelp)
 			}
-			return r.runADOWikiFetch(args, stdout)
+			return r.runADOWikiFetch(args, stdout, stderr)
 		},
 	}
 }
 
-func (r Runner) newADOFetchCommand(stdout io.Writer) *cobra.Command {
+func (r Runner) newADOFetchCommand(stdout, stderr io.Writer) *cobra.Command {
 	return &cobra.Command{
-		Use:                "fetch <work-item-id> [--profile <profile-name>] [--global]",
+		Use:                "fetch <work-item-id> [--profile <profile-name>] [--global] [--json]",
 		Short:              "Fetch Azure DevOps work item context",
 		Long:               adoFetchHelp,
 		DisableFlagParsing: true,
@@ -134,7 +134,7 @@ func (r Runner) newADOFetchCommand(stdout io.Writer) *cobra.Command {
 			if isHelpRequest(args) {
 				return writeCommandHelp(cmd, adoFetchHelp)
 			}
-			return r.runADOFetch(args, stdout)
+			return r.runADOFetch(args, stdout, stderr)
 		},
 	}
 }
@@ -169,7 +169,7 @@ func (r Runner) newADOWorkItemCommand(stdout io.Writer) *cobra.Command {
 	}
 }
 
-func (r Runner) newADOPullRequestCommand(stdout io.Writer) *cobra.Command {
+func (r Runner) newADOPullRequestCommand(stdout, stderr io.Writer) *cobra.Command {
 	return &cobra.Command{
 		Use:   "pr <pull-request-id>|fetch|ensure|comment|reply|resolve|reopen",
 		Short: "Manage Azure DevOps pull request context and maintenance",
@@ -185,14 +185,14 @@ func (r Runner) newADOPullRequestCommand(stdout io.Writer) *cobra.Command {
 			if helpText, ok := prOperationHelp(args); ok {
 				return writeCommandHelp(cmd, helpText)
 			}
-			return r.runADOPullRequest(args, stdout)
+			return r.runADOPullRequest(args, stdout, stderr)
 		},
 	}
 }
 
-func (r Runner) newADOLoginCommand(stdin io.Reader, stderr io.Writer) *cobra.Command {
+func (r Runner) newADOLoginCommand(stdin io.Reader, stdout, stderr io.Writer) *cobra.Command {
 	return &cobra.Command{
-		Use:                "login (--profile <profile-name> | --pat-ref <ref>) [--global]",
+		Use:                "login (--profile <profile-name> | --pat-ref <ref>) [--global] [--json]",
 		Short:              "Store an Azure DevOps PAT",
 		Long:               adoLoginHelp,
 		DisableFlagParsing: true,
@@ -200,14 +200,14 @@ func (r Runner) newADOLoginCommand(stdin io.Reader, stderr io.Writer) *cobra.Com
 			if isHelpRequest(args) {
 				return writeCommandHelp(cmd, adoLoginHelp)
 			}
-			return r.runADOLogin(args, stdin, stderr)
+			return r.runADOLogin(args, stdin, stdout, stderr)
 		},
 	}
 }
 
-func (r Runner) newADOLogoutCommand() *cobra.Command {
+func (r Runner) newADOLogoutCommand(stdout, stderr io.Writer) *cobra.Command {
 	return &cobra.Command{
-		Use:                "logout (--profile <profile-name> | --pat-ref <ref>) [--global]",
+		Use:                "logout (--profile <profile-name> | --pat-ref <ref>) [--global] [--json]",
 		Short:              "Delete an Azure DevOps PAT",
 		Long:               adoLogoutHelp,
 		DisableFlagParsing: true,
@@ -215,7 +215,7 @@ func (r Runner) newADOLogoutCommand() *cobra.Command {
 			if isHelpRequest(args) {
 				return writeCommandHelp(cmd, adoLogoutHelp)
 			}
-			return r.runADOLogout(args)
+			return r.runADOLogout(args, stdout, stderr)
 		},
 	}
 }

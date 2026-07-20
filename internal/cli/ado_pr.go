@@ -11,11 +11,11 @@ import (
 	"github.com/Digni/adomi/internal/config"
 )
 
-func (r Runner) runADOPullRequest(args []string, stdout io.Writer) error {
+func (r Runner) runADOPullRequest(args []string, stdout, stderr io.Writer) error {
 	if len(args) > 0 {
 		switch args[0] {
 		case "fetch":
-			return r.runADOPullRequestFetch(args[1:], stdout)
+			return r.runADOPullRequestFetch(args[1:], stdout, stderr)
 		case "ensure":
 			return r.runADOPullRequestEnsure(args[1:], stdout)
 		case "comment":
@@ -28,10 +28,10 @@ func (r Runner) runADOPullRequest(args []string, stdout io.Writer) error {
 			return r.runADOPullRequestThreadStatus(args[1:], stdout, "reopen", "active", "reopened")
 		}
 	}
-	return r.runADOPullRequestFetch(args, stdout)
+	return r.runADOPullRequestFetch(args, stdout, stderr)
 }
 
-func (r Runner) runADOPullRequestFetch(args []string, stdout io.Writer) error {
+func (r Runner) runADOPullRequestFetch(args []string, stdout, stderr io.Writer) error {
 	prArgs, err := parsePRArgs(args)
 	if err != nil {
 		return err
@@ -70,8 +70,11 @@ func (r Runner) runADOPullRequestFetch(args []string, stdout io.Writer) error {
 		return err
 	}
 
+	fw := &feedbackWriter{w: stderr}
 	ctx := context.Background()
-	bundle, err := deps.FetchPullRequest(ctx, client, prArgs.pullRequestID)
+	bundle, err := deps.FetchPullRequest(ctx, client, prArgs.pullRequestID, func(msg string) {
+		fw.writeMessage(msg)
+	})
 	if err != nil {
 		return err
 	}
@@ -85,19 +88,46 @@ func (r Runner) runADOPullRequestFetch(args []string, stdout io.Writer) error {
 		return err
 	}
 
+	threadCount := len(bundle.Threads)
+	commentCount := 0
+	for _, t := range bundle.Threads {
+		for _, c := range t.Comments {
+			if !c.IsDeleted {
+				commentCount++
+			}
+		}
+	}
+
+	fw.writeLine("Exported pull request %d bundle to %s", prArgs.pullRequestID, outputDir)
+
+	if prArgs.json {
+		return writeJSONLine(stdout, prFetchJSONResult{
+			Path:         outputDir,
+			ThreadCount:  threadCount,
+			CommentCount: commentCount,
+		})
+	}
+
 	fmt.Fprintln(stdout, outputDir)
 	return nil
+}
+
+type prFetchJSONResult struct {
+	Path         string `json:"path"`
+	ThreadCount  int    `json:"threadCount"`
+	CommentCount int    `json:"commentCount"`
 }
 
 type prArgs struct {
 	pullRequestID int
 	profile       string
 	global        bool
+	json          bool
 }
 
 func parsePRArgs(args []string) (prArgs, error) {
 	if len(args) == 0 {
-		return prArgs{}, fmt.Errorf("usage: adomi ado pr fetch <pull-request-id> [--profile <profile-name>] [--global]")
+		return prArgs{}, fmt.Errorf("usage: adomi ado pr fetch <pull-request-id> [--profile <profile-name>] [--global] [--json]")
 	}
 	pullRequestID, err := strconv.Atoi(args[0])
 	if err != nil || pullRequestID <= 0 {
@@ -105,6 +135,7 @@ func parsePRArgs(args []string) (prArgs, error) {
 	}
 	var profile string
 	var global bool
+	var json bool
 	for i := 1; i < len(args); i++ {
 		switch args[i] {
 		case "--profile":
@@ -115,9 +146,11 @@ func parsePRArgs(args []string) (prArgs, error) {
 			i++
 		case "--global":
 			global = true
+		case "--json":
+			json = true
 		default:
 			return prArgs{}, fmt.Errorf("unknown argument %q", args[i])
 		}
 	}
-	return prArgs{pullRequestID: pullRequestID, profile: profile, global: global}, nil
+	return prArgs{pullRequestID: pullRequestID, profile: profile, global: global, json: json}, nil
 }

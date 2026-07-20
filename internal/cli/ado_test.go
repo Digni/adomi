@@ -71,12 +71,12 @@ func TestADOActionCommandHelp(t *testing.T) {
 		{
 			name: "fetch work item",
 			args: []string{"ado", "fetch", "--help"},
-			want: []string{"Usage:", "adomi ado fetch", "work-item-id", "--profile", "--global", "stdout", "context directory"},
+			want: []string{"Usage:", "adomi ado fetch", "work-item-id", "--profile", "--global", "--json", "stdout", "context directory", "Progress and summary", "stderr"},
 		},
 		{
 			name: "fetch pull request",
 			args: []string{"ado", "pr", "fetch", "--help"},
-			want: []string{"Usage:", "adomi ado pr fetch", "pull-request-id", "--profile", "--global", "stdout", "context directory"},
+			want: []string{"Usage:", "adomi ado pr fetch", "pull-request-id", "--profile", "--global", "--json", "stdout", "context directory", "Progress and summary", "stderr"},
 		},
 		{
 			name: "work item comment shorthand",
@@ -91,12 +91,12 @@ func TestADOActionCommandHelp(t *testing.T) {
 		{
 			name: "login",
 			args: []string{"ado", "login", "--help"},
-			want: []string{"Usage:", "adomi ado login", "--profile", "--pat-ref", "--global", "PAT", "stderr"},
+			want: []string{"Usage:", "adomi ado login", "--profile", "--pat-ref", "--global", "--json", "PAT", "Confirmation", "stderr", "stdout"},
 		},
 		{
 			name: "logout",
 			args: []string{"ado", "logout", "--help"},
-			want: []string{"Usage:", "adomi ado logout", "--profile", "--pat-ref", "--global", "credential"},
+			want: []string{"Usage:", "adomi ado logout", "--profile", "--pat-ref", "--global", "--json", "credential", "Confirmation", "stderr", "stdout"},
 		},
 		{
 			name: "profiles list",

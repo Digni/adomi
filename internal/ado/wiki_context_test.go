@@ -21,7 +21,7 @@ func TestFetchWikiContextFetchesOnePage(t *testing.T) {
 		},
 	}
 
-	got, err := FetchWikiContext(context.Background(), fetcher, "Engineering", "/Guide", false)
+	got, err := FetchWikiContext(context.Background(), fetcher, "Engineering", "/Guide", false, nil)
 	if err != nil {
 		t.Fatalf("FetchWikiContext returned error: %v", err)
 	}
@@ -61,7 +61,10 @@ func TestFetchWikiContextFetchesRecursiveTreeInStablePathOrder(t *testing.T) {
 		},
 	}
 
-	got, err := FetchWikiContext(context.Background(), fetcher, "Engineering", "/Guide", true)
+	var progress []string
+	got, err := FetchWikiContext(context.Background(), fetcher, "Engineering", "/Guide", true, func(message string) {
+		progress = append(progress, message)
+	})
 	if err != nil {
 		t.Fatalf("FetchWikiContext returned error: %v", err)
 	}
@@ -82,6 +85,15 @@ func TestFetchWikiContextFetchesRecursiveTreeInStablePathOrder(t *testing.T) {
 	if !reflect.DeepEqual(fetcher.pageCalls, wantCalls) {
 		t.Fatalf("page calls = %#v, want metadata then sequential content calls %#v", fetcher.pageCalls, wantCalls)
 	}
+	wantProgress := []string{
+		`Fetching wiki page "/Guide"`,
+		`Fetching wiki page "/Guide/Alpha"`,
+		`Fetching wiki page "/Guide/Alpha/Details"`,
+		`Fetching wiki page "/Guide/Zeta"`,
+	}
+	if !reflect.DeepEqual(progress, wantProgress) {
+		t.Fatalf("progress = %q, want %q", progress, wantProgress)
+	}
 }
 
 func TestFetchWikiContextRecursiveRootIncludesWholeWikiTree(t *testing.T) {
@@ -95,7 +107,7 @@ func TestFetchWikiContextRecursiveRootIncludesWholeWikiTree(t *testing.T) {
 		},
 	}
 
-	got, err := FetchWikiContext(context.Background(), fetcher, "wiki", "/", true)
+	got, err := FetchWikiContext(context.Background(), fetcher, "wiki", "/", true, nil)
 	if err != nil {
 		t.Fatalf("FetchWikiContext returned error: %v", err)
 	}
@@ -117,7 +129,7 @@ func TestFetchWikiContextAllowsEmptyContentAndIgnoresDescendantsWhenNotRecursive
 		},
 	}
 
-	got, err := FetchWikiContext(context.Background(), fetcher, "wiki", "/Guide", false)
+	got, err := FetchWikiContext(context.Background(), fetcher, "wiki", "/Guide", false, nil)
 	if err != nil {
 		t.Fatalf("FetchWikiContext returned error: %v", err)
 	}
@@ -228,7 +240,7 @@ func TestFetchWikiContextRejectsInvalidOrIncompleteResponses(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := FetchWikiContext(context.Background(), tt.fetcher, "wiki", tt.pagePath, tt.recursive)
+			got, err := FetchWikiContext(context.Background(), tt.fetcher, "wiki", tt.pagePath, tt.recursive, nil)
 			if err == nil || !strings.Contains(err.Error(), tt.wantError) {
 				t.Fatalf("FetchWikiContext error = %v, want %q", err, tt.wantError)
 			}
@@ -255,7 +267,7 @@ func TestFetchWikiContextReturnsNilOnMidFetchError(t *testing.T) {
 		pageErrs: map[string]error{"/Guide/A|content": errors.New("boom")},
 	}
 
-	got, err := FetchWikiContext(context.Background(), fetcher, "wiki", "/Guide", true)
+	got, err := FetchWikiContext(context.Background(), fetcher, "wiki", "/Guide", true, nil)
 	if err == nil || !strings.Contains(err.Error(), `fetching wiki page "/Guide/A"`) {
 		t.Fatalf("FetchWikiContext error = %v, want failing page context", err)
 	}

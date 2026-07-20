@@ -13,7 +13,7 @@ import (
 	"golang.org/x/term"
 )
 
-func (r Runner) runADOLogin(args []string, stdin io.Reader, stderr io.Writer) error {
+func (r Runner) runADOLogin(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 	credentialArgs, err := parseCredentialArgs(args)
 	if err != nil {
 		return err
@@ -36,7 +36,18 @@ func (r Runner) runADOLogin(args []string, stdin io.Reader, stderr io.Writer) er
 	if err := deps.PATStore.Set(credentialRef, pat); err != nil {
 		return err
 	}
+
+	fw := &feedbackWriter{w: stderr}
+	fw.writeLine("Stored Azure DevOps PAT for credential ref %q in the keyring", credentialRef)
+	if credentialArgs.json {
+		return writeJSONLine(stdout, loginResult{Action: "stored", CredentialRef: credentialRef})
+	}
 	return nil
+}
+
+type loginResult struct {
+	Action        string `json:"action"`
+	CredentialRef string `json:"credentialRef"`
 }
 
 func readSecret(prompt string, stdin io.Reader, stderr io.Writer) (string, error) {
@@ -60,7 +71,7 @@ func readSecret(prompt string, stdin io.Reader, stderr io.Writer) (string, error
 	return line, nil
 }
 
-func (r Runner) runADOLogout(args []string) error {
+func (r Runner) runADOLogout(args []string, stdout, stderr io.Writer) error {
 	credentialArgs, err := parseCredentialArgs(args)
 	if err != nil {
 		return err
@@ -70,7 +81,16 @@ func (r Runner) runADOLogout(args []string) error {
 	if err != nil {
 		return err
 	}
-	return deps.PATStore.Delete(credentialRef)
+	if err := deps.PATStore.Delete(credentialRef); err != nil {
+		return err
+	}
+
+	fw := &feedbackWriter{w: stderr}
+	fw.writeLine("Deleted Azure DevOps PAT for credential ref %q from the keyring", credentialRef)
+	if credentialArgs.json {
+		return writeJSONLine(stdout, loginResult{Action: "deleted", CredentialRef: credentialRef})
+	}
+	return nil
 }
 
 func (r Runner) runADOProfilesList(args []string, stdout io.Writer) error {
@@ -214,6 +234,7 @@ type credentialArgs struct {
 	profile string
 	patRef  string
 	global  bool
+	json    bool
 }
 
 func parseCredentialArgs(args []string) (credentialArgs, error) {
@@ -238,6 +259,8 @@ func parseCredentialArgs(args []string) (credentialArgs, error) {
 			i++
 		case "--global":
 			parsed.global = true
+		case "--json":
+			parsed.json = true
 		default:
 			return credentialArgs{}, fmt.Errorf("unknown argument %q", args[i])
 		}

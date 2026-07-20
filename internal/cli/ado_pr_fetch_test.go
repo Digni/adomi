@@ -30,7 +30,7 @@ func TestADOPullRequestFetchCommandPrintsOnlyExportedPath(t *testing.T) {
 		},
 		NewHTTPClient: func(proxy string) (*http.Client, error) { return http.DefaultClient, nil },
 		NewADOClient:  func(httpClient *http.Client, cfg ado.ClientConfig) (ADOClient, error) { return fakeADOClient{}, nil },
-		FetchPullRequest: func(ctx context.Context, fetcher ado.PullRequestFetcher, id int) (*ado.PullRequestBundle, error) {
+		FetchPullRequest: func(ctx context.Context, fetcher ado.PullRequestFetcher, id int, _ ado.ProgressFunc) (*ado.PullRequestBundle, error) {
 			if id != 42 {
 				t.Fatalf("id = %d, want 42", id)
 			}
@@ -47,6 +47,48 @@ func TestADOPullRequestFetchCommandPrintsOnlyExportedPath(t *testing.T) {
 	}
 	if stdout.String() != "/repo/.adomi/context/pull-requests/42\n" {
 		t.Fatalf("stdout = %q, want fetch path", stdout.String())
+	}
+}
+
+func TestADOPullRequestFetchJSONWritesExactResultAndCountsDeletedContent(t *testing.T) {
+	bundle := &ado.PullRequestBundle{
+		PullRequest: &ado.PullRequest{ID: 42, Repository: ado.PullRequestRepo{ID: "repo-uuid"}},
+		Threads: []ado.PullRequestThread{
+			{ID: 1, Comments: []ado.PullRequestComment{{ID: 10}, {ID: 11, IsDeleted: true}}},
+			{ID: 2, IsDeleted: true, Comments: []ado.PullRequestComment{{ID: 20}}},
+			{ID: 3},
+		},
+	}
+	runner := Runner{deps: Dependencies{
+		PATStore:     &fakePATStore{values: map[string]string{"shared-ado": "secret-pat"}},
+		Getwd:        func() (string, error) { return "/repo/subdir", nil },
+		UserHomeDir:  func() (string, error) { return "/home/me", nil },
+		FindRepoRoot: func(string) (string, error) { return "/repo", nil },
+		LoadConfig: func(string, string, string, config.Scope) (*config.Loaded, error) {
+			return &config.Loaded{Profile: config.Profile{Name: "company", PATRef: "shared-ado", BaseURL: "https://dev.azure.com/org", Project: "Project"}}, nil
+		},
+		NewHTTPClient: func(string) (*http.Client, error) { return http.DefaultClient, nil },
+		NewADOClient:  func(*http.Client, ado.ClientConfig) (ADOClient, error) { return fakeADOClient{}, nil },
+		FetchPullRequest: func(_ context.Context, _ ado.PullRequestFetcher, _ int, progress ado.ProgressFunc) (*ado.PullRequestBundle, error) {
+			progress("Fetched pull request 42")
+			progress("Fetched 3 review threads")
+			return bundle, nil
+		},
+		ExportPullRequest: func(ado.PullRequestExportOptions, *ado.PullRequestBundle) (string, error) {
+			return "/repo/.adomi/context/pull-requests/42", nil
+		},
+	}}
+	var stdout, stderr bytes.Buffer
+
+	err := runner.Run([]string{"ado", "pr", "fetch", "42", "--profile", "company", "--json"}, strings.NewReader(""), &stdout, &stderr)
+	if err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+	if got, want := stdout.String(), "{\"path\":\"/repo/.adomi/context/pull-requests/42\",\"threadCount\":3,\"commentCount\":2}\n"; got != want {
+		t.Fatalf("stdout = %q, want %q", got, want)
+	}
+	if got, want := stderr.String(), "Fetched pull request 42\nFetched 3 review threads\nExported pull request 42 bundle to /repo/.adomi/context/pull-requests/42\n"; got != want {
+		t.Fatalf("stderr = %q, want %q", got, want)
 	}
 }
 
@@ -90,7 +132,7 @@ func TestADOPullRequestPrintsOnlyExportedPath(t *testing.T) {
 			}
 			return fakeClient, nil
 		},
-		FetchPullRequest: func(ctx context.Context, fetcher ado.PullRequestFetcher, id int) (*ado.PullRequestBundle, error) {
+		FetchPullRequest: func(ctx context.Context, fetcher ado.PullRequestFetcher, id int, _ ado.ProgressFunc) (*ado.PullRequestBundle, error) {
 			if id != 42 {
 				t.Fatalf("PR ID = %d, want 42", id)
 			}
@@ -117,8 +159,11 @@ func TestADOPullRequestPrintsOnlyExportedPath(t *testing.T) {
 	if stdout.String() != want {
 		t.Fatalf("stdout = %q, want %q", stdout.String(), want)
 	}
-	if stderr.String() != "" {
-		t.Fatalf("stderr = %q, want empty", stderr.String())
+	if !strings.Contains(stderr.String(), "Exported") {
+		if stderr.String() == "" {
+			t.Fatalf("stderr empty, want feedback")
+		}
+		t.Fatalf("stderr = %q, want summary line", stderr.String())
 	}
 }
 
@@ -168,7 +213,7 @@ func TestADOPullRequestGlobalUsesGlobalConfigScope(t *testing.T) {
 		},
 		NewHTTPClient: func(proxy string) (*http.Client, error) { return http.DefaultClient, nil },
 		NewADOClient:  func(httpClient *http.Client, cfg ado.ClientConfig) (ADOClient, error) { return fakeClient, nil },
-		FetchPullRequest: func(ctx context.Context, fetcher ado.PullRequestFetcher, id int) (*ado.PullRequestBundle, error) {
+		FetchPullRequest: func(ctx context.Context, fetcher ado.PullRequestFetcher, id int, _ ado.ProgressFunc) (*ado.PullRequestBundle, error) {
 			return bundle, nil
 		},
 		ExportPullRequest: func(opts ado.PullRequestExportOptions, gotBundle *ado.PullRequestBundle) (string, error) {
@@ -193,7 +238,7 @@ func TestADOPullRequestLeavesStdoutEmptyOnFetchError(t *testing.T) {
 		},
 		NewHTTPClient: func(proxy string) (*http.Client, error) { return http.DefaultClient, nil },
 		NewADOClient:  func(httpClient *http.Client, cfg ado.ClientConfig) (ADOClient, error) { return fakeADOClient{}, nil },
-		FetchPullRequest: func(ctx context.Context, fetcher ado.PullRequestFetcher, id int) (*ado.PullRequestBundle, error) {
+		FetchPullRequest: func(ctx context.Context, fetcher ado.PullRequestFetcher, id int, _ ado.ProgressFunc) (*ado.PullRequestBundle, error) {
 			return nil, errors.New("boom")
 		},
 	}}
@@ -270,8 +315,11 @@ azureDevOps:
 	if stdout.String() != wantOutputDir+"\n" {
 		t.Fatalf("stdout = %q, want path plus newline only", stdout.String())
 	}
-	if stderr.String() != "" {
-		t.Fatalf("stderr = %q, want empty", stderr.String())
+	if !strings.Contains(stderr.String(), "Exported") {
+		if stderr.String() == "" {
+			t.Fatalf("stderr empty, want feedback")
+		}
+		t.Fatalf("stderr = %q, want summary line", stderr.String())
 	}
 	assertLocalFile(t, filepath.Join(outputDir, "index.json"))
 	assertLocalFile(t, filepath.Join(outputDir, "pull-request.json"))

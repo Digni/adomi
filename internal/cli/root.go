@@ -51,11 +51,11 @@ type Dependencies struct {
 	RemoteDefaultBranch func(repoRoot, remoteName string) (string, error)
 	NewHTTPClient       func(proxyURL string) (*http.Client, error)
 	NewADOClient        func(httpClient *http.Client, cfg ado.ClientConfig) (ADOClient, error)
-	FetchTree           func(ctx context.Context, fetcher ado.WorkItemFetcher, rootID int) (*ado.WorkItemTree, error)
-	ExportContext       func(ctx context.Context, downloader ado.AttachmentDownloader, opts ado.ExportOptions, tree *ado.WorkItemTree) (string, error)
-	FetchPullRequest    func(ctx context.Context, fetcher ado.PullRequestFetcher, id int) (*ado.PullRequestBundle, error)
+	FetchTree           func(ctx context.Context, fetcher ado.WorkItemFetcher, rootID int, progress ado.ProgressFunc) (*ado.WorkItemTree, error)
+	ExportContext       func(ctx context.Context, downloader ado.AttachmentDownloader, opts ado.ExportOptions, tree *ado.WorkItemTree, progress ado.ProgressFunc) (string, error)
+	FetchPullRequest    func(ctx context.Context, fetcher ado.PullRequestFetcher, id int, progress ado.ProgressFunc) (*ado.PullRequestBundle, error)
 	ExportPullRequest   func(opts ado.PullRequestExportOptions, bundle *ado.PullRequestBundle) (string, error)
-	FetchWikiContext    func(ctx context.Context, fetcher ado.WikiFetcher, wikiIdentifier, pagePath string, recursive bool) (*ado.WikiContext, error)
+	FetchWikiContext    func(ctx context.Context, fetcher ado.WikiFetcher, wikiIdentifier, pagePath string, recursive bool, progress ado.ProgressFunc) (*ado.WikiContext, error)
 	ExportWikiContext   func(opts ado.WikiExportOptions, wikiContext *ado.WikiContext) (string, error)
 	Now                 func() time.Time
 }

@@ -10,7 +10,7 @@ import (
 	"github.com/Digni/adomi/internal/config"
 )
 
-func (r Runner) runADOWikiFetch(args []string, stdout io.Writer) error {
+func (r Runner) runADOWikiFetch(args []string, stdout, stderr io.Writer) error {
 	wikiArgs, err := parseWikiFetchArgs(args)
 	if err != nil {
 		return err
@@ -45,7 +45,11 @@ func (r Runner) runADOWikiFetch(args []string, stdout io.Writer) error {
 	if err != nil {
 		return err
 	}
-	wikiContext, err := deps.FetchWikiContext(context.Background(), client, wikiArgs.wikiIdentifier, wikiArgs.pagePath, wikiArgs.recursive)
+
+	fw := &feedbackWriter{w: stderr}
+	wikiContext, err := deps.FetchWikiContext(context.Background(), client, wikiArgs.wikiIdentifier, wikiArgs.pagePath, wikiArgs.recursive, func(msg string) {
+		fw.writeMessage(msg)
+	})
 	if err != nil {
 		return err
 	}
@@ -58,8 +62,23 @@ func (r Runner) runADOWikiFetch(args []string, stdout io.Writer) error {
 	if err != nil {
 		return err
 	}
+
+	fw.writeLine("Exported %d wiki pages to %s", len(wikiContext.Pages), outputDir)
+
+	if wikiArgs.json {
+		return writeJSONLine(stdout, wikiFetchJSONResult{
+			Path:  outputDir,
+			Pages: len(wikiContext.Pages),
+		})
+	}
+
 	fmt.Fprintln(stdout, outputDir)
 	return nil
+}
+
+type wikiFetchJSONResult struct {
+	Path  string `json:"path"`
+	Pages int    `json:"pages"`
 }
 
 type wikiFetchArgs struct {
@@ -68,11 +87,12 @@ type wikiFetchArgs struct {
 	profile        string
 	recursive      bool
 	global         bool
+	json           bool
 }
 
 func parseWikiFetchArgs(args []string) (wikiFetchArgs, error) {
 	if len(args) == 0 {
-		return wikiFetchArgs{}, fmt.Errorf("usage: adomi ado wiki fetch <wiki-id-or-name> --page <absolute-wiki-page-path> [--recursive] [--profile <profile-name>] [--global]")
+		return wikiFetchArgs{}, fmt.Errorf("usage: adomi ado wiki fetch <wiki-id-or-name> --page <absolute-wiki-page-path> [--recursive] [--profile <profile-name>] [--global] [--json]")
 	}
 	if strings.TrimSpace(args[0]) == "" || strings.HasPrefix(args[0], "-") {
 		return wikiFetchArgs{}, fmt.Errorf("wiki identifier is required")
@@ -83,7 +103,7 @@ func parseWikiFetchArgs(args []string) (wikiFetchArgs, error) {
 	for i := 1; i < len(args); i++ {
 		flag := args[i]
 		switch flag {
-		case "--page", "--profile", "--recursive", "--global":
+		case "--page", "--profile", "--recursive", "--global", "--json":
 			if seen[flag] {
 				return wikiFetchArgs{}, fmt.Errorf("%s cannot be repeated", flag)
 			}
@@ -109,6 +129,8 @@ func parseWikiFetchArgs(args []string) (wikiFetchArgs, error) {
 			parsed.recursive = true
 		case "--global":
 			parsed.global = true
+		case "--json":
+			parsed.json = true
 		default:
 			return wikiFetchArgs{}, fmt.Errorf("unknown argument %q", flag)
 		}

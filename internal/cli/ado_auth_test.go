@@ -26,8 +26,8 @@ func TestADOLoginStoresPATForDirectRef(t *testing.T) {
 	if stdout.String() != "" {
 		t.Fatalf("stdout = %q, want empty", stdout.String())
 	}
-	if !strings.Contains(stderr.String(), "Azure DevOps PAT for shared-ado:") {
-		t.Fatalf("stderr = %q, want prompt", stderr.String())
+	if got, want := stderr.String(), "Azure DevOps PAT for shared-ado: Stored Azure DevOps PAT for credential ref \"shared-ado\" in the keyring\n"; got != want {
+		t.Fatalf("stderr = %q, want %q", got, want)
 	}
 }
 
@@ -124,15 +124,72 @@ func TestADOLoginGlobalProfileFallsBackToProfileName(t *testing.T) {
 func TestADOLogoutDeletesPATForDirectRef(t *testing.T) {
 	store := &fakePATStore{values: map[string]string{"shared-ado": "secret-pat"}}
 	runner := Runner{deps: Dependencies{PATStore: store}}
+	var stdout, stderr bytes.Buffer
 
-	err := runner.Run([]string{"ado", "logout", "--pat-ref", "shared-ado"}, strings.NewReader(""), &bytes.Buffer{}, &bytes.Buffer{})
+	err := runner.Run([]string{"ado", "logout", "--pat-ref", "shared-ado"}, strings.NewReader(""), &stdout, &stderr)
 	if err != nil {
 		t.Fatalf("Run returned error: %v", err)
 	}
 	if _, ok := store.values["shared-ado"]; ok {
 		t.Fatal("PAT still exists after logout")
 	}
+	if stdout.String() != "" {
+		t.Fatalf("stdout = %q, want empty", stdout.String())
+	}
+	if got, want := stderr.String(), "Deleted Azure DevOps PAT for credential ref \"shared-ado\" from the keyring\n"; got != want {
+		t.Fatalf("stderr = %q, want %q", got, want)
+	}
 }
+
+func TestADOAuthFailuresDoNotWriteConfirmations(t *testing.T) {
+	t.Run("empty PAT", func(t *testing.T) {
+		var stdout, stderr bytes.Buffer
+		runner := Runner{deps: Dependencies{PATStore: &fakePATStore{}}}
+
+		err := runner.Run([]string{"ado", "login", "--pat-ref", "shared-ado"}, strings.NewReader("\n"), &stdout, &stderr)
+		if err == nil {
+			t.Fatal("Run error = nil, want empty PAT error")
+		}
+		if stdout.String() != "" || strings.Contains(stderr.String(), "Stored Azure DevOps PAT") {
+			t.Fatalf("stdout = %q, stderr = %q, want no confirmation", stdout.String(), stderr.String())
+		}
+	})
+
+	t.Run("keyring store failure", func(t *testing.T) {
+		var stdout, stderr bytes.Buffer
+		runner := Runner{deps: Dependencies{PATStore: failingPATStore{setErr: errors.New("store failed")}}}
+
+		err := runner.Run([]string{"ado", "login", "--pat-ref", "shared-ado"}, strings.NewReader("secret-pat\n"), &stdout, &stderr)
+		if err == nil {
+			t.Fatal("Run error = nil, want keyring error")
+		}
+		if stdout.String() != "" || strings.Contains(stderr.String(), "Stored Azure DevOps PAT") {
+			t.Fatalf("stdout = %q, stderr = %q, want no confirmation", stdout.String(), stderr.String())
+		}
+	})
+
+	t.Run("keyring delete failure", func(t *testing.T) {
+		var stdout, stderr bytes.Buffer
+		runner := Runner{deps: Dependencies{PATStore: failingPATStore{deleteErr: errors.New("delete failed")}}}
+
+		err := runner.Run([]string{"ado", "logout", "--pat-ref", "shared-ado"}, strings.NewReader(""), &stdout, &stderr)
+		if err == nil {
+			t.Fatal("Run error = nil, want keyring error")
+		}
+		if stdout.String() != "" || stderr.String() != "" {
+			t.Fatalf("stdout = %q, stderr = %q, want no output", stdout.String(), stderr.String())
+		}
+	})
+}
+
+type failingPATStore struct {
+	setErr    error
+	deleteErr error
+}
+
+func (f failingPATStore) Get(string) (string, error) { return "", errors.New("not implemented") }
+func (f failingPATStore) Set(string, string) error   { return f.setErr }
+func (f failingPATStore) Delete(string) error        { return f.deleteErr }
 
 func TestADOLogoutProfileDeletesPATRef(t *testing.T) {
 	store := &fakePATStore{values: map[string]string{"shared-ado": "secret-pat", "company-cloud": "old-pat"}}
@@ -398,4 +455,76 @@ type partialErrorReader struct {
 func (r partialErrorReader) Read(p []byte) (int, error) {
 	copy(p, "partial")
 	return len("partial"), errors.New("disk read failed")
+}
+
+func TestADOLoginJSONOutput(t *testing.T) {
+	store := &fakePATStore{}
+	runner := Runner{deps: Dependencies{PATStore: store}}
+	var stdout, stderr bytes.Buffer
+
+	err := runner.Run([]string{"ado", "login", "--pat-ref", "shared-ado", "--json"}, strings.NewReader("secret-pat\n"), &stdout, &stderr)
+	if err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+	if got := store.values["shared-ado"]; got != "secret-pat" {
+		t.Fatalf("stored PAT = %q, want secret-pat", got)
+	}
+	if got, want := stdout.String(), "{\"action\":\"stored\",\"credentialRef\":\"shared-ado\"}\n"; got != want {
+		t.Fatalf("stdout = %q, want %q", got, want)
+	}
+	// stderr should have no result data
+	if strings.Contains(stderr.String(), `"action"`) {
+		t.Fatalf("stderr = %q, must not contain result data", stderr.String())
+	}
+	if got, want := stderr.String(), "Azure DevOps PAT for shared-ado: Stored Azure DevOps PAT for credential ref \"shared-ado\" in the keyring\n"; got != want {
+		t.Fatalf("stderr = %q, want %q", got, want)
+	}
+}
+
+func TestADOLogoutJSONOutput(t *testing.T) {
+	store := &fakePATStore{values: map[string]string{"shared-ado": "secret-pat"}}
+	runner := Runner{deps: Dependencies{PATStore: store}}
+	var stdout, stderr bytes.Buffer
+
+	err := runner.Run([]string{"ado", "logout", "--pat-ref", "shared-ado", "--json"}, strings.NewReader(""), &stdout, &stderr)
+	if err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+	if _, ok := store.values["shared-ado"]; ok {
+		t.Fatal("PAT still exists after logout")
+	}
+	if got, want := stdout.String(), "{\"action\":\"deleted\",\"credentialRef\":\"shared-ado\"}\n"; got != want {
+		t.Fatalf("stdout = %q, want %q", got, want)
+	}
+	if strings.Contains(stderr.String(), `"action"`) {
+		t.Fatalf("stderr = %q, must not contain result data", stderr.String())
+	}
+	if got, want := stderr.String(), "Deleted Azure DevOps PAT for credential ref \"shared-ado\" from the keyring\n"; got != want {
+		t.Fatalf("stderr = %q, want %q", got, want)
+	}
+}
+
+func TestADOLoginJSONWithProfile(t *testing.T) {
+	store := &fakePATStore{}
+	runner := Runner{deps: Dependencies{
+		PATStore:     store,
+		Getwd:        func() (string, error) { return "/repo/subdir", nil },
+		UserHomeDir:  func() (string, error) { return "/home/me", nil },
+		FindRepoRoot: func(string) (string, error) { return "/repo", nil },
+		LoadConfig: func(repoRoot, homeDir, requestedProfile string, scope config.Scope) (*config.Loaded, error) {
+			return &config.Loaded{Profile: config.Profile{Name: "company-cloud", PATRef: "shared-ado", BaseURL: "https://dev.azure.com/org", Project: "MyProject"}}, nil
+		},
+	}}
+	var stdout, stderr bytes.Buffer
+
+	err := runner.Run([]string{"ado", "login", "--profile", "company-cloud", "--json"}, strings.NewReader("secret-pat\n"), &stdout, &stderr)
+	if err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+	if got := store.values["shared-ado"]; got != "secret-pat" {
+		t.Fatalf("stored PAT = %q, want secret-pat", got)
+	}
+	if !strings.Contains(stdout.String(), `"action":"stored"`) {
+		t.Fatalf("stdout = %q, want JSON with action:stored", stdout.String())
+	}
 }

@@ -8,6 +8,16 @@ import (
 	"strings"
 )
 
+// ProgressFunc is an optional callback for progress messages during
+// long-running operations. It is safe to call with nil (no-op).
+type ProgressFunc func(msg string)
+
+func (p ProgressFunc) report(msg string) {
+	if p != nil {
+		p(msg)
+	}
+}
+
 type WorkItemFetcher interface {
 	FetchWorkItem(ctx context.Context, id int) (*WorkItem, error)
 }
@@ -22,7 +32,7 @@ type WorkItemTree struct {
 	WorkItems []WorkItem `json:"workItems"`
 }
 
-func FetchTree(ctx context.Context, fetcher WorkItemFetcher, rootID int) (*WorkItemTree, error) {
+func FetchTree(ctx context.Context, fetcher WorkItemFetcher, rootID int, progress ProgressFunc) (*WorkItemTree, error) {
 	tree := &WorkItemTree{RootID: rootID}
 	visited := map[int]bool{}
 	currentID := rootID
@@ -34,6 +44,7 @@ func FetchTree(ctx context.Context, fetcher WorkItemFetcher, rootID int) (*WorkI
 		}
 		visited[currentID] = true
 
+		progress.report(fmt.Sprintf("Fetching work item %d (parent chain)", currentID))
 		item, err := fetcher.FetchWorkItem(ctx, currentID)
 		if err != nil {
 			return nil, fmt.Errorf("fetching work item %d: %w", currentID, err)
@@ -71,6 +82,7 @@ func FetchTree(ctx context.Context, fetcher WorkItemFetcher, rootID int) (*WorkI
 			continue
 		}
 		visited[childID] = true
+		progress.report(fmt.Sprintf("Fetching child work item %d", childID))
 		child, err := fetcher.FetchWorkItem(ctx, childID)
 		if err != nil {
 			return nil, fmt.Errorf("fetching child work item %d: %w", childID, err)

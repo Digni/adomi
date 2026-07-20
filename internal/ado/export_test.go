@@ -50,7 +50,7 @@ func TestExportContextWritesIndexTreeItemsAndHTML(t *testing.T) {
 		Profile:   "company-cloud",
 		Project:   "MyProject",
 		CreatedAt: createdAt,
-	}, tree)
+	}, tree, nil)
 	if err != nil {
 		t.Fatalf("ExportContext returned error: %v", err)
 	}
@@ -124,7 +124,7 @@ func TestExportContextRemovesStaleFilesFromPreviousRun(t *testing.T) {
 		RepoRoot: repoRoot,
 		Profile:  "company-cloud",
 		Project:  "MyProject",
-	}, &WorkItemTree{RootID: 12345, WorkItems: []WorkItem{{ID: 12345}}})
+	}, &WorkItemTree{RootID: 12345, WorkItems: []WorkItem{{ID: 12345}}}, nil)
 	if err != nil {
 		t.Fatalf("ExportContext returned error: %v", err)
 	}
@@ -168,7 +168,7 @@ func TestExportContextStopsBeforeFinalArtifactsWhenAttachmentDownloadFails(t *te
 		RepoRoot: repoRoot,
 		Profile:  "company-cloud",
 		Project:  "MyProject",
-	}, tree)
+	}, tree, nil)
 	if err == nil {
 		t.Fatal("ExportContext error = nil, want attachment download error")
 	}
@@ -190,8 +190,42 @@ func TestExportContextStopsBeforeFinalArtifactsWhenAttachmentDownloadFails(t *te
 	assertNotExists(t, filepath.Join(failedOutputDir, "index.json"))
 }
 
+func TestExportContextReportsWrittenAttachmentBeforeLaterDownloadFails(t *testing.T) {
+	repoRoot := t.TempDir()
+	tree := &WorkItemTree{
+		RootID: 12345,
+		WorkItems: []WorkItem{{
+			ID: 12345,
+			Relations: []Relation{
+				{Rel: attachmentRelationType, URL: "https://example.test/first", Attributes: map[string]any{"name": "first.txt"}},
+				{Rel: attachmentRelationType, URL: "https://example.test/second", Attributes: map[string]any{"name": "second.txt"}},
+			},
+		}},
+	}
+	downloader := fakeDownloader{
+		data: map[string][]byte{"https://example.test/first": []byte("first")},
+		errs: map[string]error{"https://example.test/second": errors.New("boom")},
+	}
+	var progress []string
+
+	_, err := ExportContext(context.Background(), downloader, ExportOptions{
+		RepoRoot: repoRoot,
+		Profile:  "company-cloud",
+		Project:  "MyProject",
+	}, tree, func(message string) {
+		progress = append(progress, message)
+	})
+	if err == nil {
+		t.Fatal("ExportContext error = nil, want attachment download error")
+	}
+	if len(progress) != 1 || !strings.Contains(progress[0], "first.txt") {
+		t.Fatalf("progress = %q, want completed first attachment before later failure", progress)
+	}
+	assertExists(t, filepath.Join(OutputPath(repoRoot, "company-cloud", "MyProject", 12345), "attachments", "12345", "first.txt"))
+}
+
 func TestExportContextRejectsNilTree(t *testing.T) {
-	_, err := ExportContext(context.Background(), fakeDownloader{}, ExportOptions{RepoRoot: t.TempDir()}, nil)
+	_, err := ExportContext(context.Background(), fakeDownloader{}, ExportOptions{RepoRoot: t.TempDir()}, nil, nil)
 	if err == nil {
 		t.Fatal("ExportContext error = nil, want error")
 	}
@@ -207,7 +241,7 @@ func TestExportContextDefaultsZeroCreatedAt(t *testing.T) {
 		RepoRoot: repoRoot,
 		Profile:  "company-cloud",
 		Project:  "MyProject",
-	}, &WorkItemTree{RootID: 12345, WorkItems: []WorkItem{{ID: 12345}}})
+	}, &WorkItemTree{RootID: 12345, WorkItems: []WorkItem{{ID: 12345}}}, nil)
 	if err != nil {
 		t.Fatalf("ExportContext returned error: %v", err)
 	}
@@ -240,7 +274,7 @@ func TestExportContextAllowsNilDownloader(t *testing.T) {
 		RepoRoot: repoRoot,
 		Profile:  "company-cloud",
 		Project:  "MyProject",
-	}, tree)
+	}, tree, nil)
 	if err != nil {
 		t.Fatalf("ExportContext returned error: %v", err)
 	}

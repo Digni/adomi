@@ -109,7 +109,7 @@ func TestDownloadAttachmentsKeepsDuplicateSuffixesWithinLengthLimit(t *testing.T
 		"https://example.test/b": []byte("b"),
 	}}
 
-	attachments, err := DownloadAttachments(context.Background(), downloader, outputDir, item)
+	attachments, err := DownloadAttachments(context.Background(), downloader, outputDir, item, nil)
 	if err != nil {
 		t.Fatalf("DownloadAttachments returned error: %v", err)
 	}
@@ -137,7 +137,7 @@ func TestDownloadAttachmentsWritesFilesAndSuffixesDuplicates(t *testing.T) {
 		"https://example.test/b": []byte("b"),
 	}}
 
-	attachments, err := DownloadAttachments(context.Background(), downloader, outputDir, item)
+	attachments, err := DownloadAttachments(context.Background(), downloader, outputDir, item, nil)
 	if err != nil {
 		t.Fatalf("DownloadAttachments returned error: %v", err)
 	}
@@ -153,7 +153,7 @@ func TestDownloadAttachmentsReturnsDownloadError(t *testing.T) {
 	item := WorkItem{ID: 12345, Relations: []Relation{{Rel: attachmentRelationType, URL: "https://example.test/a"}}}
 	downloader := fakeDownloader{errs: map[string]error{"https://example.test/a": errors.New("boom")}}
 
-	_, err := DownloadAttachments(context.Background(), downloader, outputDir, item)
+	_, err := DownloadAttachments(context.Background(), downloader, outputDir, item, nil)
 	if err == nil {
 		t.Fatal("DownloadAttachments error = nil, want error")
 	}

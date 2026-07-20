@@ -185,7 +185,8 @@ type PullRequestBundle struct {
 	Threads     []PullRequestThread `json:"threads"`
 }
 
-func FetchPullRequestBundle(ctx context.Context, fetcher PullRequestFetcher, id int) (*PullRequestBundle, error) {
+func FetchPullRequestBundle(ctx context.Context, fetcher PullRequestFetcher, id int, progress ProgressFunc) (*PullRequestBundle, error) {
+	progress.report(fmt.Sprintf("Fetching pull request %d", id))
 	pr, err := fetcher.FetchPullRequest(ctx, id)
 	if err != nil {
 		return nil, fmt.Errorf("fetching pull request %d: %w", id, err)
@@ -193,9 +194,11 @@ func FetchPullRequestBundle(ctx context.Context, fetcher PullRequestFetcher, id 
 	if pr.Repository.ID == "" {
 		return nil, fmt.Errorf("pull request %d response missing repository ID", id)
 	}
+	progress.report(fmt.Sprintf("Fetching pull request %d threads", id))
 	threads, err := fetcher.FetchPullRequestThreads(ctx, pr.Repository.ID, id)
 	if err != nil {
 		return nil, fmt.Errorf("fetching pull request %d threads: %w", id, err)
 	}
+	progress.report(fmt.Sprintf("Fetched pull request %d with %d threads", id, len(threads)))
 	return &PullRequestBundle{PullRequest: pr, Threads: threads}, nil
 }

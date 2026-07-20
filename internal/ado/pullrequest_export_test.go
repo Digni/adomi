@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -16,7 +17,10 @@ func TestFetchPullRequestBundleReturnsPRWithThreads(t *testing.T) {
 	threads := []PullRequestThread{{ID: 1, Status: "active", Comments: []PullRequestComment{{ID: 100, Content: "Looks good"}}}}
 	fetcher := &fakePullRequestFetcher{pr: pr, threads: threads}
 
-	bundle, err := FetchPullRequestBundle(context.Background(), fetcher, 42)
+	var progress []string
+	bundle, err := FetchPullRequestBundle(context.Background(), fetcher, 42, func(message string) {
+		progress = append(progress, message)
+	})
 	if err != nil {
 		t.Fatalf("FetchPullRequestBundle returned error: %v", err)
 	}
@@ -29,13 +33,21 @@ func TestFetchPullRequestBundleReturnsPRWithThreads(t *testing.T) {
 	if fetcher.threadsRepoID != "repo-uuid" || fetcher.threadsPRID != 42 {
 		t.Fatalf("threads called with %q/%d, want repo-uuid/42", fetcher.threadsRepoID, fetcher.threadsPRID)
 	}
+	wantProgress := []string{
+		"Fetching pull request 42",
+		"Fetching pull request 42 threads",
+		"Fetched pull request 42 with 1 threads",
+	}
+	if !reflect.DeepEqual(progress, wantProgress) {
+		t.Fatalf("progress = %q, want %q", progress, wantProgress)
+	}
 }
 
 func TestFetchPullRequestBundleRequiresRepositoryID(t *testing.T) {
 	pr := &PullRequest{ID: 42, Repository: PullRequestRepo{}}
 	fetcher := &fakePullRequestFetcher{pr: pr}
 
-	_, err := FetchPullRequestBundle(context.Background(), fetcher, 42)
+	_, err := FetchPullRequestBundle(context.Background(), fetcher, 42, nil)
 	if err == nil {
 		t.Fatal("FetchPullRequestBundle error = nil, want missing repo ID error")
 	}
@@ -50,7 +62,7 @@ func TestFetchPullRequestBundleRequiresRepositoryID(t *testing.T) {
 func TestFetchPullRequestBundleWrapsPRError(t *testing.T) {
 	fetcher := &fakePullRequestFetcher{prErr: errors.New("boom")}
 
-	_, err := FetchPullRequestBundle(context.Background(), fetcher, 42)
+	_, err := FetchPullRequestBundle(context.Background(), fetcher, 42, nil)
 	if err == nil {
 		t.Fatal("FetchPullRequestBundle error = nil, want PR fetch error")
 	}
@@ -65,7 +77,7 @@ func TestFetchPullRequestBundleWrapsThreadsError(t *testing.T) {
 		threadsErr: errors.New("boom"),
 	}
 
-	_, err := FetchPullRequestBundle(context.Background(), fetcher, 42)
+	_, err := FetchPullRequestBundle(context.Background(), fetcher, 42, nil)
 	if err == nil {
 		t.Fatal("FetchPullRequestBundle error = nil, want threads error")
 	}

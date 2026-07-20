@@ -36,7 +36,7 @@ func FilenameForAttachment(relation Relation, ordinal int) string {
 	return sanitizeFilename(name, ordinal)
 }
 
-func DownloadAttachments(ctx context.Context, downloader AttachmentDownloader, outputDir string, item WorkItem) ([]AttachmentSummary, error) {
+func DownloadAttachments(ctx context.Context, downloader AttachmentDownloader, outputDir string, item WorkItem, progress ProgressFunc) ([]AttachmentSummary, error) {
 	relations := item.AttachmentRelations()
 	if len(relations) == 0 {
 		return nil, nil
@@ -61,6 +61,7 @@ func DownloadAttachments(ctx context.Context, downloader AttachmentDownloader, o
 		if err := os.WriteFile(diskPath, data, 0o644); err != nil {
 			return nil, fmt.Errorf("writing attachment %q for work item %d: %w", filename, item.ID, err)
 		}
+		progress.report(fmt.Sprintf("Downloaded attachment %s for work item %d", filename, item.ID))
 		summaries = append(summaries, AttachmentSummary{
 			WorkItemID: item.ID,
 			Name:       filename,
