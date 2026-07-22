@@ -176,6 +176,10 @@ func (fakeADOClient) CreateWorkItemComment(ctx context.Context, opts ado.WorkIte
 	return &ado.WorkItemComment{ID: 1, WorkItemID: opts.WorkItemID}, nil
 }
 
+func (fakeADOClient) LinkWorkItemToPullRequest(ctx context.Context, workItemID, expectedRevision int, artifactURL string) (*ado.WorkItem, error) {
+	return &ado.WorkItem{ID: workItemID, Rev: expectedRevision + 1, Relations: []ado.Relation{{Rel: "ArtifactLink", URL: artifactURL}}}, nil
+}
+
 func (fakeADOClient) FetchPullRequest(ctx context.Context, id int) (*ado.PullRequest, error) {
 	return &ado.PullRequest{ID: id, Repository: ado.PullRequestRepo{ID: "repo"}}, nil
 }

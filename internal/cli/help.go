@@ -184,6 +184,32 @@ stdout:
   Prints only the pull request ID, or one JSON object when --json is used.
 `
 
+const adoPRLinkHelp = `Link existing Azure DevOps work items to an existing pull request.
+
+Usage:
+  adomi ado pr link <pull-request-id> --work-item <work-item-id> [--work-item <work-item-id>...] [--profile <profile-name>] [--global] [--json]
+
+Arguments:
+  <pull-request-id>   positive Azure DevOps pull request ID
+
+Flags:
+  --work-item <work-item-id>   positive work item ID; repeat to link multiple work items
+  --profile <profile-name>     select a configured Azure DevOps profile
+  --global                     use user-level configuration
+  --json                       print one compact JSON object
+
+Rules:
+  Every work item is preflighted before the first write. Missing links are then added sequentially in input order.
+  Already linked work items are successful no-ops, so re-running the command is idempotent.
+  Multi-item linking is not atomic: if a later update fails, earlier links remain and the error identifies them.
+  The PAT needs code read and work item write permissions.
+  This command adds only explicit pull request links; generic relation editing, unlinking, and work item field or state changes are not supported.
+
+stdout:
+  Prints every requested work item ID in input order, one per line, or one compact result object with --json.
+  Output is buffered until all requested items succeed; stdout stays empty on failure.
+`
+
 const adoPRCommentHelp = `Create a new Azure DevOps pull request comment thread.
 
 Usage:

@@ -18,6 +18,8 @@ func (r Runner) runADOPullRequest(args []string, stdout, stderr io.Writer) error
 			return r.runADOPullRequestFetch(args[1:], stdout, stderr)
 		case "ensure":
 			return r.runADOPullRequestEnsure(args[1:], stdout)
+		case "link":
+			return r.runADOPullRequestLink(args[1:], stdout)
 		case "comment":
 			return r.runADOPullRequestComment(args[1:], stdout)
 		case "reply":

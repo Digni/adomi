@@ -1,13 +1,15 @@
 package ado
 
 const (
-	parentRelationType     = "System.LinkTypes.Hierarchy-Reverse"
-	childRelationType      = "System.LinkTypes.Hierarchy-Forward"
-	attachmentRelationType = "AttachedFile"
+	parentRelationType       = "System.LinkTypes.Hierarchy-Reverse"
+	childRelationType        = "System.LinkTypes.Hierarchy-Forward"
+	attachmentRelationType   = "AttachedFile"
+	artifactLinkRelationType = "ArtifactLink"
 )
 
 type WorkItem struct {
 	ID        int            `json:"id"`
+	Rev       int            `json:"rev,omitempty"`
 	URL       string         `json:"url,omitempty"`
 	Fields    map[string]any `json:"fields,omitempty"`
 	Relations []Relation     `json:"relations,omitempty"`
@@ -77,6 +79,15 @@ func (w WorkItem) AttachmentRelations() []Relation {
 		}
 	}
 	return attachments
+}
+
+func (w WorkItem) HasArtifactLink(url string) bool {
+	for _, relation := range w.Relations {
+		if relation.Rel == artifactLinkRelationType && relation.URL == url {
+			return true
+		}
+	}
+	return false
 }
 
 func fieldString(fields map[string]any, key string) string {

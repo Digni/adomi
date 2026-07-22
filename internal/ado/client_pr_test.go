@@ -19,7 +19,7 @@ func TestClientFetchPullRequestBuildsURLAndAuth(t *testing.T) {
 		seenPath = r.URL.EscapedPath()
 		seenAPIVersion = r.URL.Query().Get("api-version")
 		seenAuth = r.Header.Get("Authorization")
-		fmt.Fprint(w, `{"pullRequestId":42,"title":"PR title","repository":{"id":"repo-uuid","name":"adomi"}}`)
+		fmt.Fprint(w, `{"pullRequestId":42,"title":"PR title","repository":{"id":"repo-uuid","name":"adomi","project":{"id":"project-uuid","name":"My Project"}}}`)
 	}))
 	t.Cleanup(server.Close)
 
@@ -42,6 +42,9 @@ func TestClientFetchPullRequestBuildsURLAndAuth(t *testing.T) {
 	}
 	if pr.Repository.ID != "repo-uuid" {
 		t.Fatalf("repository ID = %q, want repo-uuid", pr.Repository.ID)
+	}
+	if pr.Repository.ProjectID() != "project-uuid" || pr.Repository.Project["name"] != "My Project" {
+		t.Fatalf("repository project = %#v, want decoded ID and preserved metadata", pr.Repository.Project)
 	}
 	if seenPath != "/tfs/DefaultCollection/My%20Project/_apis/git/pullrequests/42" {
 		t.Fatalf("path = %q, want pullrequests path", seenPath)

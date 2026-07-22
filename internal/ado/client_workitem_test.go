@@ -22,7 +22,7 @@ func TestClientFetchWorkItemBuildsURLWithBasePathAndAuth(t *testing.T) {
 		seenExpand = r.URL.Query().Get("$expand")
 		seenAPIVersion = r.URL.Query().Get("api-version")
 		seenAuth = r.Header.Get("Authorization")
-		fmt.Fprint(w, `{"id":12345,"fields":{"System.Title":"Title","System.WorkItemType":"Task"}}`)
+		fmt.Fprint(w, `{"id":12345,"rev":7,"fields":{"System.Title":"Title","System.WorkItemType":"Task"}}`)
 	}))
 	t.Cleanup(server.Close)
 
@@ -42,6 +42,9 @@ func TestClientFetchWorkItemBuildsURLWithBasePathAndAuth(t *testing.T) {
 	}
 	if item.ID != 12345 {
 		t.Fatalf("item ID = %d, want 12345", item.ID)
+	}
+	if item.Rev != 7 {
+		t.Fatalf("item revision = %d, want 7", item.Rev)
 	}
 	if seenPath != "/tfs/DefaultCollection/My%20Project/_apis/wit/workitems/12345" {
 		t.Fatalf("path = %q, want Azure DevOps work item path", seenPath)

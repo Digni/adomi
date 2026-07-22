@@ -122,6 +122,7 @@ type statusErrorFunc func(action string, id int, resp *http.Response) error
 
 type jsonRequestOptions struct {
 	omitNilBody bool
+	contentType string
 	statusError statusErrorFunc
 }
 
@@ -139,7 +140,11 @@ func (c *Client) doJSONWithOptions(ctx context.Context, method, requestURL strin
 		return fmt.Errorf("creating request: %w", err)
 	}
 	if body != nil || !opts.omitNilBody {
-		req.Header.Set("Content-Type", "application/json")
+		contentType := opts.contentType
+		if contentType == "" {
+			contentType = "application/json"
+		}
+		req.Header.Set("Content-Type", contentType)
 	}
 	c.authorize(req)
 

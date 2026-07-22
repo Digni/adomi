@@ -24,6 +24,7 @@ type WorkItemFetcher interface {
 
 type WorkItemMaintainer interface {
 	CreateWorkItemComment(ctx context.Context, opts WorkItemCommentCreateOptions) (*WorkItemComment, error)
+	LinkWorkItemToPullRequest(ctx context.Context, workItemID, expectedRevision int, artifactURL string) (*WorkItem, error)
 }
 
 type WorkItemTree struct {

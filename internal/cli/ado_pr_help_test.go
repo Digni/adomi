@@ -21,7 +21,7 @@ func TestADOPullRequestNamespaceHelpListsSupportedOperations(t *testing.T) {
 	if stdout.String() != "" {
 		t.Fatalf("stdout = %q, want empty", stdout.String())
 	}
-	for _, want := range []string{"fetch", "ensure", "comment", "reply", "resolve", "reopen", "--file <path> --line <line>", "latest-version right-side inline threads"} {
+	for _, want := range []string{"fetch", "ensure", "link", "comment", "reply", "resolve", "reopen", "--file <path> --line <line>", "latest-version right-side inline threads"} {
 		if !strings.Contains(stderr.String(), want) {
 			t.Fatalf("stderr = %q, want %q", stderr.String(), want)
 		}
@@ -73,6 +73,11 @@ func TestADOPullRequestOperationHelp(t *testing.T) {
 		args []string
 		want []string
 	}{
+		{
+			name: "link",
+			args: []string{"ado", "pr", "link", "--help"},
+			want: []string{"Usage:", "adomi ado pr link", "--work-item", "repeat", "--profile", "--global", "--json", "input order", "Already linked", "idempotent", "code read", "work item write", "not atomic", "stdout", "empty"},
+		},
 		{
 			name: "comment",
 			args: []string{"ado", "pr", "comment", "--help"},
@@ -162,5 +167,10 @@ func TestADOPullRequestHelpIsSideEffectFree(t *testing.T) {
 	stderr := runHelp(t, runner, []string{"ado", "pr", "ensure", "--description-file", "/does/not/exist", "--help"})
 	if !strings.Contains(stderr, "adomi ado pr ensure") {
 		t.Fatalf("stderr = %q, want ensure help", stderr)
+	}
+
+	stderr = runHelp(t, runner, []string{"ado", "pr", "link", "42", "--work-item", "101", "--help"})
+	if !strings.Contains(stderr, "adomi ado pr link") {
+		t.Fatalf("stderr = %q, want link help", stderr)
 	}
 }

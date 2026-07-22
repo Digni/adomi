@@ -102,7 +102,7 @@ adomi ado logout --pat-ref shared-ado-pat
 
 Login prompts through stderr, hides terminal input where supported, stores the PAT in the operating system keyring, and confirms the stored credential reference on stderr. Default stdout remains empty. Add `--json` to login or logout for a compact stdout result containing `action` and `credentialRef`. The YAML schema contains only `patRef`, never the PAT itself.
 
-Read operations require permission to read their requested Azure DevOps resource. Work item comments require work item write permission; PR maintenance requires appropriate PR and review-thread write permissions. Pipeline inspection has one repository-confirmed exact scope requirement: `vso.build` read.
+Read operations require permission to read their requested Azure DevOps resource. Work item comments require work item write permission; linking a work item to a PR requires code read and work item write permissions; other PR maintenance requires appropriate PR and review-thread write permissions. Pipeline inspection has one repository-confirmed exact scope requirement: `vso.build` read.
 
 ## Output and stream contract
 
@@ -112,7 +112,7 @@ Adomi reserves stdout for successful command data:
 - Config initialization and agent-skill creation print only the created path.
 - Profile listing prints one sorted profile name per line.
 - Login and logout leave stdout empty by default. With `--json`, they print one compact result object.
-- Plain maintenance commands print only the created or maintained ID.
+- Plain maintenance commands print only the created or maintained ID. Successful PR linking prints every requested work item ID in input order, one per line.
 - Maintenance `--json` forms print one compact JSON object followed by a newline.
 - Pipeline commands print one compact JSON value followed by a newline.
 
@@ -186,7 +186,7 @@ adomi ado work-item comment <work-item-id> --message-file <path>
 
 Provide exactly one of `--message` or `--message-file`. Add `--profile`, `--global`, or `--json` as needed. Plain success output is the created comment ID; `--json` emits one compact result object.
 
-Work item maintenance is text-comment only. Adomi does not update fields, state, assignment, relations, attachments, existing comments, or reactions.
+Apart from explicit work-item-to-PR linking, work item maintenance is text-comment only. Adomi does not update fields, state, assignment, generic relations, attachments, existing comments, or reactions.
 
 ## Pull requests
 
@@ -223,6 +223,27 @@ threads/<thread-id>.json
 ```
 
 Fetch and inspect the current PR context before answering or changing review threads unless the relevant thread details are already known.
+
+### Link work items
+
+```bash
+adomi ado pr link <pull-request-id> \
+  --work-item <work-item-id> \
+  [--work-item <work-item-id>...] \
+  [--profile <profile-name>] [--global] [--json]
+```
+
+The PR ID and at least one work item ID must be positive. Repeat `--work-item` to link multiple work items; duplicate IDs are rejected before configuration, credentials, or network access. Adomi first fetches the PR, preflights every requested work item, and then links only the missing items sequentially in input order. An exact existing PR link is a successful no-op, so rerunning the command is safe.
+
+Plain success prints all requested work item IDs in input order, one per line, including IDs that were already linked. JSON success distinguishes newly linked and unchanged items:
+
+```json
+{"pullRequestId":42,"workItemIds":[101,102],"linkedWorkItemIds":[101],"alreadyLinkedWorkItemIds":[102],"action":"linked"}
+```
+
+When every requested item was already linked, `action` is `"unchanged"`. Adomi buffers output until the whole request succeeds. Multiple links are not atomic: if a later Azure DevOps update fails, earlier links remain persisted, the command stops, stdout stays empty, and the error identifies both the failed item and the IDs linked earlier in the invocation. Rerun the same command to finish safely.
+
+The selected PAT needs code read and work item write permissions. This command supports only explicit work-item-to-PR linking: it does not provide generic relation editing, unlink/list operations, work-item field/state mutation, auto-discovery, or automatic linking from `pr ensure`.
 
 ### Ensure the active branch PR
 
@@ -284,9 +305,9 @@ adomi ado pr reopen <pull-request-id> --thread <thread-id>
 
 ### PR write boundary
 
-Adomi can ensure title/description for the active branch PR, create a PR-level or supported inline text thread, reply to a thread, and mark a thread fixed or active.
+Adomi can ensure title/description for the active branch PR, link explicitly named work items, create a PR-level or supported inline text thread, reply to a thread, and mark a thread fixed or active.
 
-It does not approve, reject, merge, complete, abandon, set auto-complete, bypass policies, or manage reviewers.
+PR linking does not provide generic relation editing, unlink/list operations, or work-item field/state mutation. Adomi also does not approve, reject, merge, complete, abandon, set auto-complete, bypass policies, or manage reviewers.
 
 ## Wikis
 

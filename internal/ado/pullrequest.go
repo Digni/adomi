@@ -3,6 +3,7 @@ package ado
 import (
 	"context"
 	"fmt"
+	"strings"
 )
 
 type PullRequest struct {
@@ -27,6 +28,25 @@ type PullRequestRepo struct {
 	Name    string         `json:"name,omitempty"`
 	URL     string         `json:"url,omitempty"`
 	Project map[string]any `json:"project,omitempty"`
+}
+
+func (r PullRequestRepo) ProjectID() string {
+	return fieldString(r.Project, "id")
+}
+
+func (p PullRequest) ArtifactURL() (string, error) {
+	if p.ID <= 0 {
+		return "", fmt.Errorf("pull request artifact URL requires positive pull request ID")
+	}
+	projectID := strings.TrimSpace(p.Repository.ProjectID())
+	if projectID == "" {
+		return "", fmt.Errorf("pull request artifact URL requires repository project ID")
+	}
+	repositoryID := strings.TrimSpace(p.Repository.ID)
+	if repositoryID == "" {
+		return "", fmt.Errorf("pull request artifact URL requires repository ID")
+	}
+	return fmt.Sprintf("vstfs:///Git/PullRequestId/%s%%2F%s%%2F%d", projectID, repositoryID, p.ID), nil
 }
 
 type PullRequestThread struct {
