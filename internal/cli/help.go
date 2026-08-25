@@ -294,6 +294,169 @@ stdout:
   Prints only the thread ID, or one JSON object when --json is used.
 `
 
+const adoPRCompleteHelp = `Request immediate completion of an Azure DevOps pull request.
+
+Usage:
+  adomi ado pr complete <pull-request-id> [--merge-strategy <no-fast-forward|squash|rebase|rebase-merge>] [--delete-source-branch <true|false>] [--transition-work-items <true|false>] [--merge-commit-message <text>] [--profile <profile-name>] [--global] [--json]
+
+Arguments:
+  <pull-request-id>   positive Azure DevOps pull request ID
+
+Flags:
+  --merge-strategy <no-fast-forward|squash|rebase|rebase-merge>   select an Azure DevOps merge strategy
+  --delete-source-branch <true|false>                              explicitly enable or disable source branch deletion
+  --transition-work-items <true|false>                             explicitly enable or disable linked work item transition
+  --merge-commit-message <text>                                    set a non-empty merge commit message
+  --profile <profile-name>                                         select a configured Azure DevOps profile
+  --global                                                         use user-level configuration
+  --json                                                           print one compact JSON result
+
+Rules:
+  This explicit Azure DevOps write accepts only an active, non-draft pull request and pins completion to its fetched source commit.
+  An already completed pull request is an unchanged success; an abandoned or draft pull request is rejected.
+  Supported fetched completion preferences are preserved unless overridden, and required branch policies remain enforced without bypass.
+  Azure DevOps may report completed while merge processing is still queued; this command returns without polling for final merge success.
+
+stdout:
+  Prints only the pull request ID, or one JSON object with the returned lifecycle and merge state when --json is used.
+`
+
+const adoPRAutoCompleteHelp = `Schedule policy-gated completion of an Azure DevOps pull request.
+
+Usage:
+  adomi ado pr auto-complete <pull-request-id> [--merge-strategy <no-fast-forward|squash|rebase|rebase-merge>] [--delete-source-branch <true|false>] [--transition-work-items <true|false>] [--merge-commit-message <text>] [--profile <profile-name>] [--global] [--json]
+
+Arguments:
+  <pull-request-id>   positive Azure DevOps pull request ID
+
+Flags:
+  --merge-strategy <no-fast-forward|squash|rebase|rebase-merge>   select an Azure DevOps merge strategy
+  --delete-source-branch <true|false>                              explicitly enable or disable source branch deletion
+  --transition-work-items <true|false>                             explicitly enable or disable linked work item transition
+  --merge-commit-message <text>                                    set a non-empty merge commit message
+  --profile <profile-name>                                         select a configured Azure DevOps profile
+  --global                                                         use user-level configuration
+  --json                                                           print one compact JSON result
+
+Rules:
+  This explicit Azure DevOps write accepts only an active, non-draft pull request and sets auto-complete as the authenticated user.
+  A completed, abandoned, or draft pull request is rejected. An already scheduled request with no preference changes is an unchanged success unless stored policy overrides must be cleared.
+  Supported completion preferences remain subject to required branch policies; policy bypass is unavailable.
+  Azure DevOps may complete the pull request immediately or leave it active and scheduled; this command returns without polling.
+
+stdout:
+  Prints only the pull request ID, or one JSON object with the returned lifecycle, merge, and auto-complete state when --json is used.
+`
+
+const adoPRCancelAutoCompleteHelp = `Cancel scheduled completion of an Azure DevOps pull request.
+
+Usage:
+  adomi ado pr cancel-auto-complete <pull-request-id> [--profile <profile-name>] [--global] [--json]
+
+Arguments:
+  <pull-request-id>   positive Azure DevOps pull request ID
+
+Flags:
+  --profile <profile-name>   select a configured Azure DevOps profile
+  --global                   use user-level configuration
+  --json                     print one compact JSON result
+
+Rules:
+  This explicit Azure DevOps write clears auto-complete only for an active pull request.
+  An active pull request without auto-complete is an unchanged success; completed and abandoned pull requests are rejected.
+
+stdout:
+  Prints only the pull request ID, or one JSON object proving auto-complete is disabled when --json is used.
+`
+
+const adoPRAbandonHelp = `Abandon an Azure DevOps pull request without merging it.
+
+Usage:
+  adomi ado pr abandon <pull-request-id> [--profile <profile-name>] [--global] [--json]
+
+Arguments:
+  <pull-request-id>   positive Azure DevOps pull request ID
+
+Flags:
+  --profile <profile-name>   select a configured Azure DevOps profile
+  --global                   use user-level configuration
+  --json                     print one compact JSON result
+
+Rules:
+  This explicit Azure DevOps write changes an active pull request to abandoned without merging it.
+  An already abandoned pull request is an unchanged success; a completed pull request is rejected.
+  Abandoning a scheduled pull request does not issue a separate auto-complete cancellation write.
+
+stdout:
+  Prints only the pull request ID, or one JSON object proving the abandoned state when --json is used.
+`
+
+const adoPRApproveHelp = `Approve an Azure DevOps pull request as the authenticated user.
+
+Usage:
+  adomi ado pr approve <pull-request-id> [--profile <profile-name>] [--global] [--json]
+
+Arguments:
+  <pull-request-id>   positive Azure DevOps pull request ID
+
+Flags:
+  --profile <profile-name>   select a configured Azure DevOps profile
+  --global                   use user-level configuration
+  --json                     print one compact JSON result
+
+Rules:
+  This explicit Azure DevOps write casts vote 10 only as the authenticated user on an active pull request.
+  It accepts no reviewer selector or raw vote and preserves an existing required-reviewer designation.
+  Completed and abandoned pull requests are rejected; an existing vote 10 is an unchanged success.
+
+stdout:
+  Prints only the pull request ID, or one JSON object with the authenticated reviewer ID and vote when --json is used.
+`
+
+const adoPRApproveWithSuggestionsHelp = `Approve an Azure DevOps pull request with suggestions as the authenticated user.
+
+Usage:
+  adomi ado pr approve-with-suggestions <pull-request-id> [--profile <profile-name>] [--global] [--json]
+
+Arguments:
+  <pull-request-id>   positive Azure DevOps pull request ID
+
+Flags:
+  --profile <profile-name>   select a configured Azure DevOps profile
+  --global                   use user-level configuration
+  --json                     print one compact JSON result
+
+Rules:
+  This explicit Azure DevOps write casts vote 5 only as the authenticated user on an active pull request.
+  It accepts no reviewer selector or raw vote and preserves an existing required-reviewer designation.
+  Completed and abandoned pull requests are rejected; an existing vote 5 is an unchanged success.
+
+stdout:
+  Prints only the pull request ID, or one JSON object with the authenticated reviewer ID and vote when --json is used.
+`
+
+const adoPRRejectHelp = `Reject an Azure DevOps pull request as the authenticated user.
+
+Usage:
+  adomi ado pr reject <pull-request-id> [--profile <profile-name>] [--global] [--json]
+
+Arguments:
+  <pull-request-id>   positive Azure DevOps pull request ID
+
+Flags:
+  --profile <profile-name>   select a configured Azure DevOps profile
+  --global                   use user-level configuration
+  --json                     print one compact JSON result
+
+Rules:
+  This explicit Azure DevOps write casts vote -10 only as the authenticated user on an active pull request.
+  It accepts no reviewer selector or raw vote and preserves an existing required-reviewer designation.
+  Completed and abandoned pull requests are rejected; an existing vote -10 is an unchanged success.
+
+stdout:
+  Prints only the pull request ID, or one JSON object with the authenticated reviewer ID and vote when --json is used.
+`
+
 const adoLoginHelp = `Store an Azure DevOps PAT.
 
 Usage:

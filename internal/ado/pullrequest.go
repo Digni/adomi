@@ -2,25 +2,116 @@ package ado
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 )
 
 type PullRequest struct {
-	ID            int              `json:"pullRequestId"`
-	Title         string           `json:"title,omitempty"`
-	Description   string           `json:"description,omitempty"`
-	Status        string           `json:"status,omitempty"`
-	IsDraft       bool             `json:"isDraft,omitempty"`
-	MergeStatus   string           `json:"mergeStatus,omitempty"`
-	CreatedBy     map[string]any   `json:"createdBy,omitempty"`
-	CreationDate  string           `json:"creationDate,omitempty"`
-	ClosedDate    string           `json:"closedDate,omitempty"`
-	SourceRefName string           `json:"sourceRefName,omitempty"`
-	TargetRefName string           `json:"targetRefName,omitempty"`
-	URL           string           `json:"url,omitempty"`
-	Repository    PullRequestRepo  `json:"repository"`
-	Reviewers     []map[string]any `json:"reviewers,omitempty"`
+	ID                    int                           `json:"pullRequestId"`
+	Title                 string                        `json:"title,omitempty"`
+	Description           string                        `json:"description,omitempty"`
+	Status                string                        `json:"status,omitempty"`
+	IsDraft               bool                          `json:"isDraft,omitempty"`
+	MergeStatus           string                        `json:"mergeStatus,omitempty"`
+	CreatedBy             map[string]any                `json:"createdBy,omitempty"`
+	CreationDate          string                        `json:"creationDate,omitempty"`
+	ClosedDate            string                        `json:"closedDate,omitempty"`
+	SourceRefName         string                        `json:"sourceRefName,omitempty"`
+	TargetRefName         string                        `json:"targetRefName,omitempty"`
+	URL                   string                        `json:"url,omitempty"`
+	Repository            PullRequestRepo               `json:"repository"`
+	Reviewers             []PullRequestReviewer         `json:"reviewers,omitempty"`
+	AutoCompleteSetBy     *IdentityRef                  `json:"autoCompleteSetBy,omitempty"`
+	LastMergeSourceCommit *GitCommitRef                 `json:"lastMergeSourceCommit,omitempty"`
+	CompletionOptions     *PullRequestCompletionOptions `json:"completionOptions,omitempty"`
+}
+
+type IdentityRef struct {
+	ID          string `json:"id"`
+	DisplayName string `json:"displayName,omitempty"`
+}
+
+type GitCommitRef struct {
+	CommitID string `json:"commitId"`
+}
+
+type PullRequestReviewer struct {
+	ID          string `json:"id"`
+	DisplayName string `json:"displayName,omitempty"`
+	Vote        int    `json:"vote"`
+	IsRequired  bool   `json:"isRequired,omitempty"`
+	rawFields   map[string]json.RawMessage
+}
+
+func (r *PullRequestReviewer) UnmarshalJSON(data []byte) error {
+	type reviewerFields struct {
+		ID          string `json:"id"`
+		DisplayName string `json:"displayName,omitempty"`
+		Vote        int    `json:"vote"`
+		IsRequired  bool   `json:"isRequired,omitempty"`
+	}
+	var fields reviewerFields
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return err
+	}
+	var rawFields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &rawFields); err != nil {
+		return err
+	}
+	r.ID = fields.ID
+	r.DisplayName = fields.DisplayName
+	r.Vote = fields.Vote
+	r.IsRequired = fields.IsRequired
+	r.rawFields = rawFields
+	return nil
+}
+
+func (r PullRequestReviewer) MarshalJSON() ([]byte, error) {
+	fields := make(map[string]json.RawMessage, len(r.rawFields)+4)
+	for name, value := range r.rawFields {
+		fields[name] = value
+	}
+	if err := setReviewerJSONField(fields, "id", r.ID, r.ID != ""); err != nil {
+		return nil, err
+	}
+	if err := setReviewerJSONField(fields, "displayName", r.DisplayName, r.DisplayName != ""); err != nil {
+		return nil, err
+	}
+	_, voteWasPresent := r.rawFields["vote"]
+	if err := setReviewerJSONField(fields, "vote", r.Vote, voteWasPresent || r.Vote != 0); err != nil {
+		return nil, err
+	}
+	_, requiredWasPresent := r.rawFields["isRequired"]
+	if err := setReviewerJSONField(fields, "isRequired", r.IsRequired, requiredWasPresent || r.IsRequired); err != nil {
+		return nil, err
+	}
+	return json.Marshal(fields)
+}
+
+func setReviewerJSONField(fields map[string]json.RawMessage, name string, value any, include bool) error {
+	if !include {
+		delete(fields, name)
+		return nil
+	}
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		return err
+	}
+	fields[name] = encoded
+	return nil
+}
+
+type PullRequestCompletionOptions struct {
+	MergeStrategy               *string `json:"mergeStrategy,omitempty"`
+	SquashMerge                 *bool   `json:"squashMerge,omitempty"`
+	DeleteSourceBranch          *bool   `json:"deleteSourceBranch,omitempty"`
+	TransitionWorkItems         *bool   `json:"transitionWorkItems,omitempty"`
+	MergeCommitMessage          *string `json:"mergeCommitMessage,omitempty"`
+	BypassPolicy                *bool   `json:"bypassPolicy,omitempty"`
+	BypassReason                *string `json:"bypassReason,omitempty"`
+	TriggeredByAutoComplete     *bool   `json:"triggeredByAutoComplete,omitempty"`
+	AutoCompleteIgnoreConfigIDs []int   `json:"autoCompleteIgnoreConfigIds,omitempty"`
 }
 
 type PullRequestRepo struct {
@@ -138,10 +229,32 @@ type PullRequestCreateOptions struct {
 }
 
 type PullRequestUpdateOptions struct {
+	RepositoryID           string
+	PullRequestID          int
+	Title                  *string
+	Description            *string
+	Status                 *string
+	LastMergeSourceCommit  *GitCommitRef
+	CompletionOptions      *PullRequestCompletionOptions
+	EnforcePolicies        bool
+	AutoCompleteMode       PullRequestAutoCompleteMode
+	AutoCompleteIdentityID string
+}
+
+type PullRequestAutoCompleteMode int
+
+const (
+	PullRequestAutoCompleteUnchanged PullRequestAutoCompleteMode = iota
+	PullRequestAutoCompleteSet
+	PullRequestAutoCompleteClear
+)
+
+type PullRequestReviewerVoteOptions struct {
 	RepositoryID  string
 	PullRequestID int
-	Title         *string
-	Description   *string
+	ReviewerID    string
+	Vote          int
+	IsRequired    bool
 }
 
 type PullRequestThreadCreateOptions struct {
@@ -198,6 +311,11 @@ type PullRequestMaintainer interface {
 	CreatePullRequestThread(ctx context.Context, opts PullRequestThreadCreateOptions) (*PullRequestThread, error)
 	CreatePullRequestThreadComment(ctx context.Context, opts PullRequestThreadCommentCreateOptions) (*PullRequestComment, error)
 	UpdatePullRequestThread(ctx context.Context, opts PullRequestThreadUpdateOptions) (*PullRequestThread, error)
+}
+
+type PullRequestGovernor interface {
+	FetchAuthenticatedIdentity(ctx context.Context) (*IdentityRef, error)
+	SetPullRequestReviewerVote(ctx context.Context, opts PullRequestReviewerVoteOptions) (*PullRequestReviewer, error)
 }
 
 type PullRequestBundle struct {

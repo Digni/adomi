@@ -200,6 +200,14 @@ func (fakeADOClient) UpdatePullRequest(ctx context.Context, opts ado.PullRequest
 	return &ado.PullRequest{}, nil
 }
 
+func (fakeADOClient) FetchAuthenticatedIdentity(context.Context) (*ado.IdentityRef, error) {
+	return &ado.IdentityRef{ID: "caller-id"}, nil
+}
+
+func (fakeADOClient) SetPullRequestReviewerVote(_ context.Context, opts ado.PullRequestReviewerVoteOptions) (*ado.PullRequestReviewer, error) {
+	return &ado.PullRequestReviewer{ID: opts.ReviewerID, Vote: opts.Vote, IsRequired: opts.IsRequired}, nil
+}
+
 func (fakeADOClient) ListPullRequestIterations(ctx context.Context, repositoryID string, pullRequestID int) ([]ado.PullRequestIteration, error) {
 	return nil, nil
 }

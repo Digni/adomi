@@ -25,6 +25,10 @@ type fakePRMaintenanceClient struct {
 	commentErr             error
 	updatedThread          *ado.PullRequestThread
 	threadUpdateErr        error
+	authenticatedIdentity  *ado.IdentityRef
+	identityErr            error
+	votedReviewer          *ado.PullRequestReviewer
+	voteErr                error
 	iterations             []ado.PullRequestIteration
 	iterationsErr          error
 	iterationChanges       []ado.PullRequestIterationChange
@@ -36,6 +40,8 @@ type fakePRMaintenanceClient struct {
 	threadCreateCalled     int
 	commentCalled          int
 	threadUpdateCalled     int
+	identityCalled         int
+	voteCalled             int
 	iterationsCalled       int
 	iterationChangesCalled int
 	fetchedPRID            int
@@ -45,7 +51,31 @@ type fakePRMaintenanceClient struct {
 	threadCreateOpts       ado.PullRequestThreadCreateOptions
 	commentOpts            ado.PullRequestThreadCommentCreateOptions
 	threadUpdateOpts       ado.PullRequestThreadUpdateOptions
+	voteOpts               ado.PullRequestReviewerVoteOptions
 	iterationChangesOpts   ado.PullRequestIterationChangesOptions
+}
+
+func (f *fakePRMaintenanceClient) FetchAuthenticatedIdentity(ctx context.Context) (*ado.IdentityRef, error) {
+	f.identityCalled++
+	if f.identityErr != nil {
+		return nil, f.identityErr
+	}
+	if f.authenticatedIdentity != nil {
+		return f.authenticatedIdentity, nil
+	}
+	return &ado.IdentityRef{ID: "caller-id"}, nil
+}
+
+func (f *fakePRMaintenanceClient) SetPullRequestReviewerVote(ctx context.Context, opts ado.PullRequestReviewerVoteOptions) (*ado.PullRequestReviewer, error) {
+	f.voteCalled++
+	f.voteOpts = opts
+	if f.voteErr != nil {
+		return nil, f.voteErr
+	}
+	if f.votedReviewer != nil {
+		return f.votedReviewer, nil
+	}
+	return &ado.PullRequestReviewer{ID: opts.ReviewerID, Vote: opts.Vote, IsRequired: opts.IsRequired}, nil
 }
 
 func (f *fakePRMaintenanceClient) FetchPullRequest(ctx context.Context, id int) (*ado.PullRequest, error) {
@@ -155,7 +185,7 @@ func prThreadTestRunner(t *testing.T, client ADOClient) Runner {
 		UserHomeDir:  func() (string, error) { return "/home/me", nil },
 		FindRepoRoot: func(string) (string, error) { return "/repo", nil },
 		LoadConfig: func(repoRoot, homeDir, requestedProfile string, scope config.Scope) (*config.Loaded, error) {
-			if repoRoot != "/repo" || homeDir != "/home/me" || scope != config.DefaultScope {
+			if repoRoot != "/repo" || homeDir != "/home/me" || scope != config.DefaultScope && scope != config.GlobalScope {
 				t.Fatalf("LoadConfig args = %q %q %q %v", repoRoot, homeDir, requestedProfile, scope)
 			}
 			if requestedProfile != "" && requestedProfile != "company-cloud" {

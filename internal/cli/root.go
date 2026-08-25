@@ -33,6 +33,7 @@ type ADOClient interface {
 	ado.AttachmentDownloader
 	ado.PullRequestFetcher
 	ado.PullRequestMaintainer
+	ado.PullRequestGovernor
 	ado.WikiFetcher
 	ado.PipelineRunReader
 }

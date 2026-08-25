@@ -171,10 +171,11 @@ func (r Runner) newADOWorkItemCommand(stdout io.Writer) *cobra.Command {
 
 func (r Runner) newADOPullRequestCommand(stdout, stderr io.Writer) *cobra.Command {
 	return &cobra.Command{
-		Use:   "pr <pull-request-id>|fetch|ensure|link|comment|reply|resolve|reopen",
+		Use:   "pr <pull-request-id>|fetch|ensure|link|comment|reply|resolve|reopen|complete|auto-complete|cancel-auto-complete|abandon|approve|approve-with-suggestions|reject",
 		Short: "Manage Azure DevOps pull request context and maintenance",
-		Long: "Manage Azure DevOps pull request context and maintenance. Supported operations: fetch, ensure, link, comment, reply, resolve, and reopen. " +
+		Long: "Manage Azure DevOps pull request context, maintenance, and explicit governance writes. Supported operations: fetch, ensure, link, comment, reply, resolve, reopen, complete, auto-complete, cancel-auto-complete, abandon, approve, approve-with-suggestions, and reject. " +
 			"Use `comment` without file flags for PR-level threads, or with paired `--file <path> --line <line>` for latest-version right-side inline threads. " +
+			"Governance verbs perform only the explicitly named lifecycle or authenticated-user vote write and remain subject to repository policy. " +
 			"The compatibility form `adomi ado pr <pull-request-id>` behaves like `adomi ado pr fetch <pull-request-id>`.",
 		DisableFlagParsing: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -268,6 +269,20 @@ func prOperationHelp(args []string) (string, bool) {
 		return adoPRResolveHelp, true
 	case "reopen":
 		return adoPRReopenHelp, true
+	case "complete":
+		return adoPRCompleteHelp, true
+	case "auto-complete":
+		return adoPRAutoCompleteHelp, true
+	case "cancel-auto-complete":
+		return adoPRCancelAutoCompleteHelp, true
+	case "abandon":
+		return adoPRAbandonHelp, true
+	case "approve":
+		return adoPRApproveHelp, true
+	case "approve-with-suggestions":
+		return adoPRApproveWithSuggestionsHelp, true
+	case "reject":
+		return adoPRRejectHelp, true
 	default:
 		return "", false
 	}

@@ -21,10 +21,56 @@ func TestADOPullRequestNamespaceHelpListsSupportedOperations(t *testing.T) {
 	if stdout.String() != "" {
 		t.Fatalf("stdout = %q, want empty", stdout.String())
 	}
-	for _, want := range []string{"fetch", "ensure", "link", "comment", "reply", "resolve", "reopen", "--file <path> --line <line>", "latest-version right-side inline threads"} {
+	for _, want := range []string{"fetch", "ensure", "link", "comment", "reply", "resolve", "reopen", "complete", "auto-complete", "cancel-auto-complete", "abandon", "approve", "approve-with-suggestions", "reject", "explicit governance writes", "--file <path> --line <line>", "latest-version right-side inline threads"} {
 		if !strings.Contains(stderr.String(), want) {
 			t.Fatalf("stderr = %q, want %q", stderr.String(), want)
 		}
+	}
+}
+
+func TestRunADOPullRequestGovernanceHelp(t *testing.T) {
+	tests := []struct {
+		verb string
+		want []string
+	}{
+		{
+			verb: "complete",
+			want: []string{"Usage:", "adomi ado pr complete <pull-request-id>", "--merge-strategy", "no-fast-forward", "squash", "rebase", "rebase-merge", "--delete-source-branch <true|false>", "--transition-work-items <true|false>", "--merge-commit-message <text>", "--profile", "--global", "--json", "active", "non-draft", "source commit", "branch policies", "without polling", "completed", "abandoned", "explicit Azure DevOps write", "stdout", "pull request ID"},
+		},
+		{
+			verb: "auto-complete",
+			want: []string{"Usage:", "adomi ado pr auto-complete <pull-request-id>", "--merge-strategy", "--delete-source-branch <true|false>", "--transition-work-items <true|false>", "--merge-commit-message <text>", "--profile", "--global", "--json", "active", "non-draft", "branch policies", "authenticated user", "immediately", "without polling", "completed", "abandoned", "unless stored policy overrides must be cleared", "explicit Azure DevOps write", "stdout", "pull request ID"},
+		},
+		{
+			verb: "cancel-auto-complete",
+			want: []string{"Usage:", "adomi ado pr cancel-auto-complete <pull-request-id>", "--profile", "--global", "--json", "active", "clears", "completed", "abandoned", "explicit Azure DevOps write", "stdout", "pull request ID"},
+		},
+		{
+			verb: "abandon",
+			want: []string{"Usage:", "adomi ado pr abandon <pull-request-id>", "--profile", "--global", "--json", "active", "without merging", "completed", "explicit Azure DevOps write", "stdout", "pull request ID"},
+		},
+		{
+			verb: "approve",
+			want: []string{"Usage:", "adomi ado pr approve <pull-request-id>", "--profile", "--global", "--json", "active", "authenticated user", "vote 10", "no reviewer", "explicit Azure DevOps write", "stdout", "pull request ID"},
+		},
+		{
+			verb: "approve-with-suggestions",
+			want: []string{"Usage:", "adomi ado pr approve-with-suggestions <pull-request-id>", "--profile", "--global", "--json", "active", "authenticated user", "vote 5", "no reviewer", "explicit Azure DevOps write", "stdout", "pull request ID"},
+		},
+		{
+			verb: "reject",
+			want: []string{"Usage:", "adomi ado pr reject <pull-request-id>", "--profile", "--global", "--json", "active", "authenticated user", "vote -10", "no reviewer", "explicit Azure DevOps write", "stdout", "pull request ID"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.verb, func(t *testing.T) {
+			stderr := runHelp(t, Runner{deps: Dependencies{}}, []string{"ado", "pr", tt.verb, "not-an-id", "--help"})
+			for _, want := range tt.want {
+				if !strings.Contains(stderr, want) {
+					t.Fatalf("stderr = %q, want %q", stderr, want)
+				}
+			}
+		})
 	}
 }
 
@@ -172,5 +218,12 @@ func TestADOPullRequestHelpIsSideEffectFree(t *testing.T) {
 	stderr = runHelp(t, runner, []string{"ado", "pr", "link", "42", "--work-item", "101", "--help"})
 	if !strings.Contains(stderr, "adomi ado pr link") {
 		t.Fatalf("stderr = %q, want link help", stderr)
+	}
+
+	for _, verb := range []string{"complete", "auto-complete", "cancel-auto-complete", "abandon", "approve", "approve-with-suggestions", "reject"} {
+		stderr = runHelp(t, runner, []string{"ado", "pr", verb, "not-an-id", "--unknown", "--help"})
+		if !strings.Contains(stderr, "adomi ado pr "+verb) {
+			t.Fatalf("stderr for %s = %q, want governance help", verb, stderr)
+		}
 	}
 }

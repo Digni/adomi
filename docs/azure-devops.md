@@ -10,7 +10,7 @@ Adomi turns Azure DevOps work items, pull requests, wiki pages, and pipeline sta
 Adomi separates two kinds of operation:
 
 - **Context and status reads** fetch Azure DevOps data into the current repository or return compact JSON.
-- **Explicit maintenance writes** add a text comment, create or update the active branch PR, or maintain a named PR review thread.
+- **Explicit maintenance and governance writes** add a text comment, create or update the active branch PR, maintain a named PR review thread, change a PR lifecycle state, or cast the authenticated user's reviewer vote.
 
 Every network-backed Azure DevOps command runs from a Git repository. `--global` selects user-level configuration; it does not change that repository requirement or move exported context outside the checkout.
 
@@ -102,7 +102,7 @@ adomi ado logout --pat-ref shared-ado-pat
 
 Login prompts through stderr, hides terminal input where supported, stores the PAT in the operating system keyring, and confirms the stored credential reference on stderr. Default stdout remains empty. Add `--json` to login or logout for a compact stdout result containing `action` and `credentialRef`. The YAML schema contains only `patRef`, never the PAT itself.
 
-Read operations require permission to read their requested Azure DevOps resource. Work item comments require work item write permission; linking a work item to a PR requires code read and work item write permissions; other PR maintenance requires appropriate PR and review-thread write permissions. Pipeline inspection has one repository-confirmed exact scope requirement: `vso.build` read.
+Read operations require permission to read their requested Azure DevOps resource. Work item comments require work item write permission; linking a work item to a PR requires code read and work item write permissions; other PR maintenance requires appropriate PR and review-thread write permissions. PR lifecycle and reviewer-vote commands require the PAT's Azure DevOps Code (read and write) scope, `vso.code_write`. Pipeline inspection requires `vso.build` read.
 
 ## Output and stream contract
 
@@ -112,8 +112,9 @@ Adomi reserves stdout for successful command data:
 - Config initialization and agent-skill creation print only the created path.
 - Profile listing prints one sorted profile name per line.
 - Login and logout leave stdout empty by default. With `--json`, they print one compact result object.
-- Plain maintenance commands print only the created or maintained ID. Successful PR linking prints every requested work item ID in input order, one per line.
+- Plain maintenance and governance commands print only the created or maintained ID. Successful PR linking prints every requested work item ID in input order, one per line.
 - Maintenance `--json` forms print one compact JSON object followed by a newline.
+- PR governance `--json` forms report `pullRequestId`, `action`, and `status`; lifecycle results add `mergeStatus` or `autoCompleteEnabled` when relevant, and vote results add `reviewerId` and the exact numeric `vote`.
 - Pipeline commands print one compact JSON value followed by a newline.
 
 Successful login/logout confirmations, fetch progress, and fetch summaries use stderr. Help, prompts, validation errors, diagnostics, and Azure DevOps or network errors also use stderr. Determine success from the exit status rather than whether stderr is empty.
@@ -222,7 +223,7 @@ comments.md
 threads/<thread-id>.json
 ```
 
-Fetch and inspect the current PR context before answering or changing review threads unless the relevant thread details are already known.
+Fetch and inspect the current PR context before answering or changing review threads unless the relevant thread details are already known. Inspect current PR state immediately before a lifecycle or vote mutation unless the user already supplied equivalent current state.
 
 ### Link work items
 
@@ -303,11 +304,91 @@ adomi ado pr reopen <pull-request-id> --thread <thread-id>
 
 `reply` accepts exactly one of `--message` or `--message-file`. Resolve marks the explicit thread `fixed`; reopen marks it `active`. Plain output is the created comment ID for a reply and the thread ID for resolve or reopen. Every command supports `--profile`, `--global`, and `--json`.
 
+### Complete, schedule, cancel, or abandon
+
+Request immediate completion:
+
+```bash
+adomi ado pr complete <pull-request-id> \
+  [--merge-strategy <no-fast-forward|squash|rebase|rebase-merge>] \
+  [--delete-source-branch <true|false>] \
+  [--transition-work-items <true|false>] \
+  [--merge-commit-message <text>] \
+  [--profile <profile-name>] [--global] [--json]
+```
+
+Schedule policy-gated auto-completion with the same optional completion preferences:
+
+```bash
+adomi ado pr auto-complete <pull-request-id> \
+  [--merge-strategy <no-fast-forward|squash|rebase|rebase-merge>] \
+  [--delete-source-branch <true|false>] \
+  [--transition-work-items <true|false>] \
+  [--merge-commit-message <text>] \
+  [--profile <profile-name>] [--global] [--json]
+```
+
+Cancel auto-completion or abandon without merging:
+
+```bash
+adomi ado pr cancel-auto-complete <pull-request-id> \
+  [--profile <profile-name>] [--global] [--json]
+
+adomi ado pr abandon <pull-request-id> \
+  [--profile <profile-name>] [--global] [--json]
+```
+
+The PR ID must be positive. Completion preference flags are accepted only by `complete` and `auto-complete`: the two boolean flags require explicit `true` or `false`, the merge commit message must be non-empty, and Adomi defines no default merge strategy. Explicit flags overlay the PR's fetched supported preferences. Omitted supported preferences are preserved when present and otherwise left to Azure DevOps and repository policy. Every completion write explicitly disables policy bypass and clears optional-policy-ignore IDs; stored bypass reasons are never copied.
+
+The lifecycle state rules are:
+
+| Command | Writeable state | Idempotent success | Rejected state |
+| --- | --- | --- | --- |
+| `complete` | Active, non-draft PR with a current source commit | Already completed | Abandoned or draft |
+| `auto-complete` | Active, non-draft PR | Already enabled with no changed completion preference or stored policy override | Completed, abandoned, or draft |
+| `cancel-auto-complete` | Active PR with auto-complete set | Active with auto-complete already disabled | Completed or abandoned |
+| `abandon` | Active PR | Already abandoned | Completed |
+
+Immediate completion is pinned to the source commit returned by the preflight read. If the source changes and Azure DevOps rejects the update, Adomi does not retry against the newer commit. A completion response may report the PR as completed while merge processing is still queued; the command returns without polling and does not claim final merge success. JSON exposes the returned `mergeStatus` when available.
+
+Auto-complete identifies the authenticated Azure DevOps user as the setter and remains subject to branch policies. Azure DevOps may leave the PR active with auto-complete enabled or complete it immediately when all requirements are already satisfied. Adomi accepts either proven response and does not poll. Running `auto-complete` against an already scheduled PR with changed completion preferences updates those supported preferences. Without changes it is a successful no-op unless stored policy-bypass or optional-policy-ignore settings need to be cleared. Cancellation applies only while the PR is active. Abandoning a scheduled PR closes it without merging and does not issue a separate cancellation request.
+
+Plain success prints only the PR ID. Lifecycle `--json` output contains `pullRequestId`, `action`, and `status`, plus `mergeStatus` or `autoCompleteEnabled` when relevant. For example, a scheduled response can be:
+
+```json
+{"pullRequestId":42,"action":"auto-complete","status":"active","autoCompleteEnabled":true}
+```
+
+When the requested state already exists, no write occurs and JSON reports `"action":"unchanged"` with the fetched current state. Any validation, preflight, Azure DevOps, or response-proof failure leaves stdout empty.
+
+### Vote as the authenticated user
+
+```bash
+adomi ado pr approve <pull-request-id> \
+  [--profile <profile-name>] [--global] [--json]
+
+adomi ado pr approve-with-suggestions <pull-request-id> \
+  [--profile <profile-name>] [--global] [--json]
+
+adomi ado pr reject <pull-request-id> \
+  [--profile <profile-name>] [--global] [--json]
+```
+
+These commands operate only on active pull requests and cast the vote only as the authenticated Azure DevOps user: `approve` sends vote `10`, `approve-with-suggestions` sends `5`, and `reject` sends `-10`. They do not accept a reviewer identity or raw vote value. An existing required-reviewer designation is preserved; when the caller is not yet a reviewer, Azure DevOps adds only that caller as non-required. Repeating the caller's current vote is a successful no-op. A vote does not complete, abandon, or schedule the PR.
+
+Plain success prints only the PR ID. Vote `--json` output contains `pullRequestId`, `action`, `status`, `reviewerId`, and the exact numeric `vote`:
+
+```json
+{"pullRequestId":42,"action":"approve","status":"active","reviewerId":"<authenticated-user-id>","vote":10}
+```
+
+All lifecycle and vote commands support `--profile`, `--global`, and `--json` and require `vso.code_write`. They deliberately do not prompt for confirmation and do not accept `--yes`; the explicit command verb is the human CLI authorization surface. A coding agent has an additional gate: it may run one of these commands only when the user explicitly requested that exact completion, scheduling, cancellation, abandonment, approval, approval-with-suggestions, or rejection outcome. Authorization must not be inferred from a request to create, update, review, or discuss a pull request.
+
 ### PR write boundary
 
-Adomi can ensure title/description for the active branch PR, link explicitly named work items, create a PR-level or supported inline text thread, reply to a thread, and mark a thread fixed or active.
+Adomi can ensure title/description for the active branch PR, link explicitly named work items, create a PR-level or supported inline text thread, reply to a thread, mark a thread fixed or active, complete or abandon a PR, schedule or cancel auto-completion, and cast the authenticated user's approval, approval-with-suggestions, or rejection vote.
 
-PR linking does not provide generic relation editing, unlink/list operations, or work-item field/state mutation. Adomi also does not approve, reject, merge, complete, abandon, set auto-complete, bypass policies, or manage reviewers.
+PR linking does not provide generic relation editing, unlink/list operations, or work-item field/state mutation. PR governance does not provide arbitrary reviewer management, vote reset, wait-for-author voting, raw vote selection, policy bypass, optional-policy suppression, abandoned-PR reactivation, completed-PR reversion, or merge polling.
 
 ## Wikis
 
@@ -419,7 +500,7 @@ The first five providers share one portable `.agents/skills/adomi/` installation
 
 Global is the default scope; `--global` makes it explicit. The shared-agent location is the default target. Replace `codex` in the shared examples with `opencode`, `pi`, `github-copilot`, or `cursor` to select another supported provider. `--claude` remains a backward-compatible alias for `--provider claude`. `--project` requires a Git repository. Existing skill directories require interactive confirmation unless `--force` or `--yes` is provided; failed replacement attempts preserve the prior skill where possible.
 
-The generated skill describes configuration discovery, context-before-maintenance workflow, command outputs, and safety boundaries. It guides an agent but does not automatically run Adomi, resolve profiles, or grant authorization.
+The generated skill describes configuration discovery, context-before-maintenance workflow, command outputs, and safety boundaries. It guides an agent but does not automatically run Adomi, resolve profiles, or grant authorization. Lifecycle and vote writes require current PR context plus an explicit user request for the exact governance outcome.
 
 ## HTTP, proxy, and error behavior
 
@@ -441,6 +522,13 @@ adomi ado fetch --help
 adomi ado comment --help
 adomi ado pr ensure --help
 adomi ado pr comment --help
+adomi ado pr complete --help
+adomi ado pr auto-complete --help
+adomi ado pr cancel-auto-complete --help
+adomi ado pr abandon --help
+adomi ado pr approve --help
+adomi ado pr approve-with-suggestions --help
+adomi ado pr reject --help
 adomi ado wiki fetch --help
 adomi ado pipeline --help
 ```

@@ -28,6 +28,8 @@ func (r Runner) runADOPullRequest(args []string, stdout, stderr io.Writer) error
 			return r.runADOPullRequestThreadStatus(args[1:], stdout, "resolve", "fixed", "resolved")
 		case "reopen":
 			return r.runADOPullRequestThreadStatus(args[1:], stdout, "reopen", "active", "reopened")
+		case "complete", "auto-complete", "cancel-auto-complete", "abandon", "approve", "approve-with-suggestions", "reject":
+			return r.runADOPullRequestGovernance(args[0], args[1:], stdout)
 		}
 	}
 	return r.runADOPullRequestFetch(args, stdout, stderr)

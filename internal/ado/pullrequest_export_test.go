@@ -201,6 +201,52 @@ func TestExportPullRequestWritesCanonicalLayout(t *testing.T) {
 	}
 }
 
+func TestExportPullRequestPreservesReviewerProperties(t *testing.T) {
+	var pr PullRequest
+	if err := json.Unmarshal([]byte(`{
+		"pullRequestId":42,
+		"repository":{"id":"repo-uuid","name":"adomi"},
+		"reviewers":[{
+			"id":"user-1",
+			"displayName":"Ada",
+			"uniqueName":"ada@example.com",
+			"vote":5,
+			"isRequired":false,
+			"hasDeclined":false,
+			"customFutureField":{"enabled":true}
+		}]
+	}`), &pr); err != nil {
+		t.Fatalf("decoding pull request fixture: %v", err)
+	}
+	repoRoot := t.TempDir()
+	outputDir, err := ExportPullRequest(PullRequestExportOptions{
+		RepoRoot:  repoRoot,
+		Profile:   "company-cloud",
+		Project:   "MyProject",
+		CreatedAt: time.Date(2026, 8, 25, 10, 0, 0, 0, time.UTC),
+	}, &PullRequestBundle{PullRequest: &pr})
+	if err != nil {
+		t.Fatalf("ExportPullRequest returned error: %v", err)
+	}
+	var exported map[string]any
+	readPullRequestJSON(t, filepath.Join(outputDir, "pull-request.json"), &exported)
+	reviewers, ok := exported["reviewers"].([]any)
+	if !ok || len(reviewers) != 1 {
+		t.Fatalf("reviewers = %#v, want one reviewer", exported["reviewers"])
+	}
+	reviewer, ok := reviewers[0].(map[string]any)
+	if !ok {
+		t.Fatalf("reviewer = %#v, want object", reviewers[0])
+	}
+	if reviewer["uniqueName"] != "ada@example.com" || reviewer["hasDeclined"] != false || reviewer["isRequired"] != false {
+		t.Fatalf("reviewer = %#v, want explicitly present existing properties", reviewer)
+	}
+	custom, ok := reviewer["customFutureField"].(map[string]any)
+	if !ok || custom["enabled"] != true {
+		t.Fatalf("customFutureField = %#v, want preserved object", reviewer["customFutureField"])
+	}
+}
+
 func TestExportPullRequestEscapesMarkdownMetadata(t *testing.T) {
 	repoRoot := t.TempDir()
 	bundle := &PullRequestBundle{

@@ -4,14 +4,14 @@ Adomi brings Azure DevOps context into the repository where you and your coding 
 
 The name blends **ADO** with the French word *ami* (“friend”): Adomi is a friendly companion for your Azure DevOps work.
 
-Instead of copying source material into a chat, use the `adomi` CLI to export work item, pull request, and wiki context below `.adomi/context/`, or to return pipeline status as compact JSON. Your agent can inspect those local artifacts before planning or changing code. When you explicitly ask it to report back, Adomi also provides a small set of bounded work item and pull request maintenance commands.
+Instead of copying source material into a chat, use the `adomi` CLI to export work item, pull request, and wiki context below `.adomi/context/`, or to return pipeline status as compact JSON. Your agent can inspect those local artifacts before planning or changing code. When you explicitly ask it to report back, Adomi also provides bounded work item, pull request maintenance, and pull request governance commands.
 
 ## Why Adomi
 
 - **Context before code.** Fetch the work item hierarchy, direct children, attachments, pull request discussions, or selected wiki pages into the current Git repository.
 - **One workflow for humans and agents.** Commands keep success output data-only, so paths, IDs, and JSON can be passed directly into scripts or agent workflows.
 - **Credentials stay out of the repository.** Profiles live in YAML; PAT values are entered through `adomi ado login` and stored in the operating system keyring.
-- **Writes stay explicit.** Adomi can add text comments, create or update the active branch PR, link explicitly named work items to a PR, and maintain selected review threads. It does not edit work item fields, approve or merge PRs, or control deployments.
+- **Writes stay explicit.** Adomi can add text comments, maintain pull requests and selected review threads, complete or abandon a PR, schedule or cancel auto-completion, and cast the authenticated user's reviewer vote. Required branch policies remain enforced; arbitrary reviewer management and policy bypass are unavailable.
 
 The core loop is simple:
 
@@ -30,13 +30,16 @@ The core loop is simple:
 | Work item comments | `adomi ado comment <work-item-id> ...` | Adds one text comment. It cannot update fields, state, assignment, generic relations, attachments, or existing comments. |
 | Pull request context | `adomi ado pr fetch <pull-request-id>` | Exports PR metadata, review threads, and readable comments under `.adomi/context/pull-requests/`. |
 | PR work-item links | `adomi ado pr link <pull-request-id> --work-item <work-item-id>` | Links explicitly named work items to a PR. Repeat `--work-item` for more IDs; no unlink, list, generic relation edit, or work-item field/state mutation is provided. |
-| Pull request maintenance | `adomi ado pr ensure`, `comment`, `reply`, `resolve`, `reopen` | Maintains the active branch PR or explicit review threads. It cannot approve, reject, merge, complete, abandon, bypass policies, or manage reviewers. |
+| Pull request maintenance | `adomi ado pr ensure`, `comment`, `reply`, `resolve`, `reopen` | Maintains the active branch PR or explicit review threads. |
+| PR lifecycle and votes | `adomi ado pr complete`, `auto-complete`, `cancel-auto-complete`, `abandon`, `approve`, `approve-with-suggestions`, `reject` | Performs only the explicitly named governance write. Completion respects branch policies; votes apply only to the authenticated user. |
 | Wiki context | `adomi ado wiki fetch ...` | Exports one page or a recursive subtree as Markdown and metadata. It does not search wikis or download linked attachments. |
 | Pipeline status | `adomi ado pipeline list`, `get` | Returns one-shot compact JSON for in-progress or the most recent (`--last <N>`) Build runs, or one run's overall status. It does not poll, fetch execution detail, inspect classic Release deployments, or mutate pipelines. |
 
 See the [Azure DevOps reference](docs/azure-devops.md) for the complete command forms, outputs, permissions, and limitations.
 
 PR linking supports `--profile`, `--global`, and `--json`, treats reruns and already-linked work items as successful no-ops, and requires PAT permissions for code read and work item write. Output is buffered until every requested item succeeds. Because multiple updates are sequential rather than atomic, a later failure leaves earlier links persisted, reports the partial progress, and keeps stdout empty so the same command can be rerun safely.
+
+PR lifecycle and vote commands require the PAT's Azure DevOps Code (read and write) scope, `vso.code_write`. Immediate and automatic completion optionally accept merge strategy, source-branch deletion, linked-work-item transition, and merge commit message preferences while remaining subject to repository policies. Plain success prints only the PR ID; `--json` reports the accepted or current state. Exact repeat requests are successful no-ops unless Adomi must clear a stored policy override, and completion commands return without polling for final merge success. A coding agent may run one of these commands only when the user explicitly requested that exact lifecycle or vote outcome; authorization is not implied by asking it to create, update, review, or discuss a PR. See the [Azure DevOps reference](docs/azure-devops.md) for exact syntax and state restrictions.
 
 ## Install
 
@@ -104,6 +107,8 @@ Adomi is designed around context-first, user-authorized automation:
 - Help, prompts, diagnostics, and errors go to stderr. Successful stdout stays limited to paths, IDs, profile names, or compact JSON.
 - Redirects from Azure DevOps API requests are not followed, which avoids turning an expired credential into an interactive sign-in page fetch.
 - Pipeline inspection uses HTTPS, except for direct loopback HTTP development endpoints, and remains read-only.
+- PR lifecycle and vote commands do not prompt for confirmation. Humans authorize the action by choosing the explicit verb; coding agents additionally require an explicit user request for that exact governance outcome and must inspect current PR state first.
+- PR governance does not expose arbitrary reviewer management, vote reset, wait-for-author voting, policy bypass, abandoned-PR reactivation, or completed-PR reversion.
 - Adomi never prints or stores PAT values in its YAML configuration.
 
 Read the [Azure DevOps reference](docs/azure-devops.md) before using maintenance commands in an automated workflow.
@@ -116,6 +121,8 @@ The CLI has side-effect-free help for every public action:
 adomi --help
 adomi ado --help
 adomi ado pr ensure --help
+adomi ado pr complete --help
+adomi ado pr approve --help
 adomi ado wiki fetch --help
 adomi ado pipeline --help
 ```
