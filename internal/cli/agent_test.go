@@ -300,6 +300,8 @@ func requiredAdomiSkillContent() []string {
 		"adomi ado login --pat-ref <ref> [--json]",
 		"adomi ado logout --profile <profile-name> [--json]",
 		"adomi ado logout --pat-ref <ref> [--json]",
+		"Run every `adomi` command outside the agent sandbox",
+		"host operating system keyring",
 		".adomi/config.yaml",
 		"git worktree",
 		"main/root repository's `.adomi/config.yaml`",

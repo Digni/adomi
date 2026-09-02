@@ -68,6 +68,10 @@ The system SHALL create a `SKILL.md` entry file with valid skill front matter an
 - **WHEN** the user runs `adomi agent skill` from any repository
 - **THEN** the created `SKILL.md` documents available configuration and credential commands including `adomi config init`, `adomi config init --global`, `adomi ado profiles list`, `adomi ado login`, and `adomi ado logout`
 
+#### Scenario: Generated SKILL requires host keyring access
+- **WHEN** the user runs `adomi agent skill` from any repository
+- **THEN** the created `SKILL.md` tells agents to run every `adomi` command outside the agent sandbox through an approved host-capable execution path because Adomi uses the host operating system keyring, and to retry sandbox keyring failures outside the sandbox before reporting missing credentials
+
 #### Scenario: Generated SKILL instructs config and project inference
 - **WHEN** the user runs `adomi agent skill` from any repository
 - **THEN** the created `SKILL.md` tells agents to inspect repository/global config and use repository or folder path structure as hints to resolve Azure DevOps project/profile context before asking the user
