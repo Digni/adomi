@@ -9,38 +9,46 @@ import (
 )
 
 const (
-	maxPipelineResponseBytes int64 = 8 * 1024 * 1024
-	maxPipelinePages               = 1000
-	maxPipelineRuns                = 100000
-	maxPipelineRunID               = 2147483647
-	maxRecentPipelineRuns          = 200
+	maxPipelineResponseBytes  int64 = 8 * 1024 * 1024
+	maxPipelinePages                = 1000
+	maxPipelineRuns                 = 100000
+	maxPipelineRunID                = 2147483647
+	maxRecentPipelineRuns           = 200
+	maxInspectionRequests           = 1000
+	maxInspectionBytes        int64 = 128 * 1024 * 1024
+	inspectionCollectionLimit       = 100000
 )
 
 var errPipelineRunLimitExceeded = errors.New("pipeline run limit exceeded")
 
 type PipelineRun struct {
-	ID            int
-	PipelineID    int
-	PipelineName  string
-	RunNumber     string
-	Status        string
-	Result        *string
-	SourceBranch  *string
-	SourceVersion *string
-	QueueTime     *time.Time
-	StartTime     *time.Time
-	FinishTime    *time.Time
-	WebURL        *string
+	ID            int        `json:"id"`
+	PipelineID    int        `json:"pipelineId"`
+	PipelineName  string     `json:"pipelineName"`
+	RunNumber     string     `json:"runNumber"`
+	Status        string     `json:"status"`
+	Result        *string    `json:"result"`
+	SourceBranch  *string    `json:"sourceBranch"`
+	SourceVersion *string    `json:"sourceVersion"`
+	QueueTime     *time.Time `json:"queueTime"`
+	StartTime     *time.Time `json:"startTime"`
+	FinishTime    *time.Time `json:"finishTime"`
+	WebURL        *string    `json:"webUrl"`
 }
 
 type PipelineRunReader interface {
-	ListInProgressPipelineRuns(ctx context.Context) ([]PipelineRun, error)
-	ListRecentPipelineRuns(ctx context.Context, n int) ([]PipelineRun, error)
+	ListInProgressPipelineRuns(ctx context.Context, options ...PipelineRunListOptions) ([]PipelineRun, error)
+	ListRecentPipelineRuns(ctx context.Context, n int, options ...PipelineRunListOptions) ([]PipelineRun, error)
 	GetPipelineRun(ctx context.Context, id int) (*PipelineRun, error)
+}
+
+type PipelineRunListOptions struct {
+	BranchName string
 }
 
 type pipelineRunResponse struct {
 	ID            int                        `json:"id"`
+	URI           *string                    `json:"uri"`
 	BuildNumber   string                     `json:"buildNumber"`
 	Status        string                     `json:"status"`
 	Result        *string                    `json:"result"`
@@ -66,8 +74,12 @@ type pipelineWebLinkResponse struct {
 	Href *string `json:"href"`
 }
 
-func (c *Client) ListInProgressPipelineRuns(ctx context.Context) ([]PipelineRun, error) {
+func (c *Client) ListInProgressPipelineRuns(ctx context.Context, options ...PipelineRunListOptions) ([]PipelineRun, error) {
 	if err := c.validatePipelineTransport(); err != nil {
+		return nil, err
+	}
+	listOptions, err := pipelineRunListOptions(options)
+	if err != nil {
 		return nil, err
 	}
 	httpClient, ownsTransport := c.pipelineHTTPClient()
@@ -78,17 +90,22 @@ func (c *Client) ListInProgressPipelineRuns(ctx context.Context) ([]PipelineRun,
 	return c.listPipelineRuns(ctx, httpClient, pipelineListOptions{
 		maxRuns:           maxPipelineRuns,
 		requireInProgress: true,
+		branchName:        listOptions.BranchName,
 		buildURL: func(continuationToken string, _ int) string {
-			return c.pipelineRunsURL(continuationToken)
+			return c.pipelineRunsURL(continuationToken, listOptions.BranchName)
 		},
 	})
 }
 
-func (c *Client) ListRecentPipelineRuns(ctx context.Context, n int) ([]PipelineRun, error) {
+func (c *Client) ListRecentPipelineRuns(ctx context.Context, n int, options ...PipelineRunListOptions) ([]PipelineRun, error) {
 	if n < 1 || n > maxRecentPipelineRuns {
 		return nil, fmt.Errorf("recent pipeline run count must be between 1 and %d", maxRecentPipelineRuns)
 	}
 	if err := c.validatePipelineTransport(); err != nil {
+		return nil, err
+	}
+	listOptions, err := pipelineRunListOptions(options)
+	if err != nil {
 		return nil, err
 	}
 	httpClient, ownsTransport := c.pipelineHTTPClient()
@@ -97,18 +114,30 @@ func (c *Client) ListRecentPipelineRuns(ctx context.Context, n int) ([]PipelineR
 	}
 
 	return c.listPipelineRuns(ctx, httpClient, pipelineListOptions{
-		maxRuns:   n,
-		stopAtMax: true,
+		maxRuns:    n,
+		stopAtMax:  true,
+		branchName: listOptions.BranchName,
 		buildURL: func(continuationToken string, remaining int) string {
-			return c.pipelineRecentRunsURL(continuationToken, remaining)
+			return c.pipelineRecentRunsURL(continuationToken, remaining, listOptions.BranchName)
 		},
 	})
+}
+
+func pipelineRunListOptions(options []PipelineRunListOptions) (PipelineRunListOptions, error) {
+	if len(options) > 1 {
+		return PipelineRunListOptions{}, fmt.Errorf("pipeline run list options cannot be repeated")
+	}
+	if len(options) == 0 {
+		return PipelineRunListOptions{}, nil
+	}
+	return options[0], nil
 }
 
 type pipelineListOptions struct {
 	maxRuns           int
 	requireInProgress bool
 	stopAtMax         bool
+	branchName        string
 	buildURL          func(continuationToken string, remaining int) string
 }
 
@@ -140,6 +169,9 @@ func (c *Client) listPipelineRuns(ctx context.Context, httpClient *http.Client, 
 			}
 			if opts.requireInProgress && run.Status != "inProgress" {
 				return nil, fmt.Errorf("listing Azure DevOps pipeline runs: run at index %d is not in progress", i)
+			}
+			if opts.branchName != "" && (run.SourceBranch == nil || *run.SourceBranch != opts.branchName) {
+				return nil, fmt.Errorf("listing Azure DevOps pipeline runs: run at index %d source branch does not match requested branch %q", i, opts.branchName)
 			}
 			if _, exists := seenRunIDs[run.ID]; exists {
 				return nil, fmt.Errorf("listing Azure DevOps pipeline runs: duplicate run ID %d", run.ID)

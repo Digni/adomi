@@ -677,7 +677,7 @@ type pipelineADOClient struct {
 	gotLast     int
 }
 
-func (f *pipelineADOClient) ListInProgressPipelineRuns(context.Context) ([]ado.PipelineRun, error) {
+func (f *pipelineADOClient) ListInProgressPipelineRuns(context.Context, ...ado.PipelineRunListOptions) ([]ado.PipelineRun, error) {
 	f.listCalls++
 	if f.listErr != nil {
 		return nil, f.listErr
@@ -685,7 +685,7 @@ func (f *pipelineADOClient) ListInProgressPipelineRuns(context.Context) ([]ado.P
 	return f.runs, nil
 }
 
-func (f *pipelineADOClient) ListRecentPipelineRuns(_ context.Context, n int) ([]ado.PipelineRun, error) {
+func (f *pipelineADOClient) ListRecentPipelineRuns(_ context.Context, n int, _ ...ado.PipelineRunListOptions) ([]ado.PipelineRun, error) {
 	f.recentCalls++
 	f.gotLast = n
 	if f.recentErr != nil {

@@ -18,7 +18,7 @@ Compatibility:
 const adoFetchHelp = `Fetch Azure DevOps work item context.
 
 Usage:
-  adomi ado fetch <work-item-id> [--profile <profile-name>] [--global] [--json]
+  adomi ado fetch <work-item-id> [--profile <profile-name>] [--global] [--json] [--include-comments]
 
 Arguments:
   <work-item-id>   positive Azure DevOps work item ID
@@ -27,16 +27,21 @@ Flags:
   --profile <profile-name>   select a configured Azure DevOps profile
   --global                   use user-level configuration
   --json                     print one compact JSON object with path, work item count, and attachment count
+  --include-comments         include current non-deleted discussion for every exported work item
 
 stdout:
   Prints only the exported work item context directory path on success, or one JSON object with --json.
   Progress and summary lines are written to stderr.
+  With --include-comments, comments are written under comments/<work-item-id>.json and appended to each HTML item; stdout and attachment counts remain unchanged.
+
+Comments:
+  Discussion is read for the root, parent-chain, and direct-child items already included in the export. It requires work-item read permission; retrieval failure leaves stdout empty and does not replace an existing export.
 `
 
 const adoPipelineHelp = `Inspect read-only Azure DevOps pipeline run status.
 
 Usage:
-  adomi ado pipeline list [--last <N>] [--profile <profile-name>] [--global]
+  adomi ado pipeline list [--branch <branch>] [--last <N>] [--profile <profile-name>] [--global]
   adomi ado pipeline get <run-id> [--profile <profile-name>] [--global]
 
 Scope:
@@ -54,7 +59,7 @@ stdout:
 
 Exclusions:
   These commands perform no polling, stage/job/environment detail lookup, mutation, or classic Release inspection.
-`
+` + adoPipelineBranchHelp + "\n" + adoPipelineInspectHelp
 
 const adoWikiNamespaceHelp = `Fetch Azure DevOps wiki context into the current Git repository.
 

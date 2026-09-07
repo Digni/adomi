@@ -12,10 +12,24 @@ import (
 )
 
 func (r Runner) newADOMaintenanceClient(requestedProfile string, global bool) (ADOClient, error) {
+	loaded, err := r.newADOMaintenanceClientContext(requestedProfile, global)
+	if err != nil {
+		return nil, err
+	}
+	return loaded.client, nil
+}
+
+type adoMaintenanceClientContext struct {
+	client   ADOClient
+	repoRoot string
+	profile  config.Profile
+}
+
+func (r Runner) newADOMaintenanceClientContext(requestedProfile string, global bool) (adoMaintenanceClientContext, error) {
 	deps := r.dependencies()
 	repoRoot, homeDir, err := resolveLocations(deps)
 	if err != nil {
-		return nil, err
+		return adoMaintenanceClientContext{}, err
 	}
 	scope := config.DefaultScope
 	if global {
@@ -23,17 +37,17 @@ func (r Runner) newADOMaintenanceClient(requestedProfile string, global bool) (A
 	}
 	loaded, err := deps.LoadConfig(repoRoot, homeDir, requestedProfile, scope)
 	if err != nil {
-		return nil, err
+		return adoMaintenanceClientContext{}, err
 	}
 	profileConfig := loaded.Profile
 
 	pat, err := deps.PATStore.Get(profileConfig.CredentialRef())
 	if err != nil {
-		return nil, err
+		return adoMaintenanceClientContext{}, err
 	}
 	httpClient, err := deps.NewHTTPClient(profileConfig.Proxy)
 	if err != nil {
-		return nil, err
+		return adoMaintenanceClientContext{}, err
 	}
 	client, err := deps.NewADOClient(httpClient, ado.ClientConfig{
 		BaseURL:    profileConfig.BaseURL,
@@ -42,9 +56,9 @@ func (r Runner) newADOMaintenanceClient(requestedProfile string, global bool) (A
 		PAT:        pat,
 	})
 	if err != nil {
-		return nil, err
+		return adoMaintenanceClientContext{}, err
 	}
-	return client, nil
+	return adoMaintenanceClientContext{client: client, repoRoot: repoRoot, profile: profileConfig}, nil
 }
 
 func resolveLocations(deps Dependencies) (string, string, error) {

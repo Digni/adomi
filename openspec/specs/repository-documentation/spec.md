@@ -6,15 +6,15 @@ Define the repository's public documentation hierarchy, supported onboarding pat
 ## Requirements
 
 ### Requirement: Public README explains Adomi's value and audience
-The repository SHALL provide a scannable `README.md` that identifies Adomi as an agent-focused Azure DevOps CLI, explains how repository-local context helps developers and coding agents work from shared source material, and distinguishes context gathering from Adomi's narrow, explicit maintenance operations.
+The repository SHALL provide a scannable `README.md` that identifies Adomi as an agent-focused Azure DevOps CLI, explains how repository-local context helps developers and coding agents work from shared source material, and distinguishes context gathering from Adomi's bounded, explicit maintenance and governance operations.
 
 #### Scenario: New visitor understands the product
 - **WHEN** a developer opens the GitHub repository without prior Adomi knowledge
 - **THEN** the README explains the problem Adomi solves, who it is for, what is written below `.adomi/context`, and how that context supports agent-assisted Azure DevOps work
 
 #### Scenario: Product description does not overstate automation
-- **WHEN** the README summarizes Adomi's maintenance capabilities
-- **THEN** it makes clear that supported writes are explicit and bounded and does not claim work item editing, PR approval or merge, deployment control, pipeline mutation, or other unsupported automation
+- **WHEN** the README summarizes Adomi's maintenance and governance capabilities
+- **THEN** it makes clear that supported writes are explicit and bounded, names the authenticated-user and branch-policy constraints on pull request governance, and does not claim broader work item editing, arbitrary reviewer management, policy bypass, deployment control, pipeline mutation, or other unsupported automation
 
 ### Requirement: Installation and first-use path are complete and reproducible
 The documentation SHALL provide a supported installation path, prerequisites, binary verification, configuration, secure credential setup, optional agent-skill installation, and a first repository-local context workflow using commands supported by the current repository.
@@ -44,11 +44,11 @@ The README and linked reference documentation SHALL make each implemented user w
 
 #### Scenario: Work item workflows are documented
 - **WHEN** a user looks for work item support
-- **THEN** the documentation covers parent-context and attachment fetching through `adomi ado fetch`, text-only comment creation through the canonical comment command, repository-local export behavior, and the unsupported broader work item mutations
+- **THEN** the documentation covers parent-context and attachment fetching through `adomi ado fetch`, opt-in paginated non-deleted discussion for all exported items through `--include-comments`, text-only comment creation through the canonical comment command, repository-local export behavior, and the unsupported broader work item mutations
 
 #### Scenario: Pull request workflows are documented
 - **WHEN** a user looks for pull request support
-- **THEN** the documentation covers context fetching, active-branch PR ensure, PR-level and supported inline comments, thread replies, resolve and reopen operations, repository and branch inference, and the conservative boundary excluding approvals, merges, policy bypass, and reviewer management
+- **THEN** the documentation covers repository/source/target/status PR discovery through `adomi ado pr list` with automatic bounded paging, JSON output and read permission, context fetching, active-branch PR ensure, work-item linking, PR-level and supported inline comments, thread replies, resolve and reopen operations, immediate completion, policy-gated auto-completion and cancellation, abandonment, authenticated-user approval, approval with suggestions, and rejection; identifies repository and branch inference, code write permission, completion preferences, explicit authorization, asynchronous behavior, and output contracts; and preserves the boundary excluding arbitrary reviewer management, vote reset, wait-for-author voting, policy bypass, reactivation, and reversion
 
 #### Scenario: Wiki workflows are documented
 - **WHEN** a user looks for wiki support
@@ -56,11 +56,11 @@ The README and linked reference documentation SHALL make each implemented user w
 
 #### Scenario: Pipeline workflows are documented
 - **WHEN** a user looks for pipeline support
-- **THEN** the documentation covers one-shot listing of in-progress Build runs and retrieval of one run's overall status, compact JSON output, the required read scope, and the exclusions of polling, stage or job detail, logs, artifacts, mutation, and classic Release deployments
+- **THEN** the documentation covers one-shot in-progress and recent Build-run listing with optional server-side branch filtering, summary get with stable JSON, and inspect exports of observed stage/job/task records, failed-task logs, and published tests; explains Build/Test read scopes, unique snapshot paths, optional JSON output, current-attempt/one-shot limits, empty versus unavailable evidence, and fixed budgets; and excludes polling, arbitrary artifacts, test attachments, mutation, and classic Release deployments
 
 #### Scenario: Agent integration is documented
 - **WHEN** a coding-agent user looks for Adomi integration
-- **THEN** the documentation explains global and project-scoped `adomi agent skill` targets; names Codex, OpenCode, Pi, GitHub Copilot, Cursor, and Claude as supported providers; explains that the first five share `.agents/skills` while Claude uses `.claude/skills`; documents `--provider` and the backward-compatible `--claude` alias; covers safe replacement flags; and explains how the generated skill teaches agents to use Adomi
+- **THEN** the documentation explains global and project-scoped `adomi agent skill` targets; names Codex, OpenCode, Pi, GitHub Copilot, Cursor, and Claude as supported providers; explains that the first five share `.agents/skills` while Claude uses `.claude/skills`; documents `--provider` and the backward-compatible `--claude` alias; covers safe replacement flags; and explains how the generated skill teaches agents to use Adomi, including the explicit authorization boundary for lifecycle and vote writes
 
 ### Requirement: Documentation has a clear source hierarchy
 The repository SHALL use the README as the concise GitHub landing page, `docs/getting-started.md` as the complete onboarding guide, and `docs/azure-devops.md` as the detailed Azure DevOps command and behavior reference, with descriptive links between them and without presenting the obsolete implementation handover as current user guidance.
@@ -95,3 +95,22 @@ The documentation SHALL derive commands, flags, config locations, output paths, 
 #### Scenario: Documentation change preserves runtime behavior
 - **WHEN** the change is applied
 - **THEN** no Go source, CLI behavior, config schema, Azure DevOps request, or generated contract is changed as part of the documentation work
+
+### Requirement: Pull request governance documentation is operationally complete
+The repository documentation SHALL describe the supported pull request lifecycle and authenticated-user voting workflows with commands, prerequisites, outputs, state restrictions, completion preferences, and remaining safety exclusions that match the executable contract.
+
+#### Scenario: Lifecycle commands are documented
+- **WHEN** a user reads the pull request reference
+- **THEN** it documents `complete`, `auto-complete`, `cancel-auto-complete`, and `abandon`, including valid completion preferences, branch-policy enforcement, idempotent behavior, terminal-state restrictions, source-commit pinning for immediate completion, and the lack of completion polling
+
+#### Scenario: Reviewer vote commands are documented
+- **WHEN** a user reads the pull request reference
+- **THEN** it documents `approve`, `approve-with-suggestions`, and `reject`, their Azure DevOps vote meanings, authenticated-user-only behavior, active-pull-request restriction, and the exclusion of arbitrary reviewer management
+
+#### Scenario: Governance permissions and outputs are documented
+- **WHEN** a user prepares to run a lifecycle or vote command
+- **THEN** the documentation identifies the code write permission, explains `--profile`, `--global`, and `--json`, distinguishes plain ID output from structured state output, and does not expose PAT values
+
+#### Scenario: Agent authorization boundary is documented
+- **WHEN** a user delegates pull request work to a coding agent
+- **THEN** the documentation states that the agent requires explicit authorization for the exact lifecycle or vote mutation and must not infer that authorization from a request to create, update, review, or discuss a pull request

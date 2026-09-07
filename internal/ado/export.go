@@ -16,6 +16,7 @@ type ExportOptions struct {
 	Profile   string
 	Project   string
 	CreatedAt time.Time
+	Comments  map[int][]WorkItemReadComment
 }
 
 type Index struct {
@@ -35,6 +36,7 @@ type IndexItem struct {
 	Path            string `json:"path"`
 	HTMLPath        string `json:"htmlPath"`
 	AttachmentsPath string `json:"attachmentsPath"`
+	CommentsPath    string `json:"commentsPath,omitempty"`
 }
 
 func OutputPath(repoRoot, profile, project string, rootID int) string {
@@ -59,6 +61,11 @@ func ExportContext(ctx context.Context, downloader AttachmentDownloader, opts Ex
 	if err := os.MkdirAll(filepath.Join(outputDir, "html"), 0o755); err != nil {
 		return "", fmt.Errorf("creating HTML export directory: %w", err)
 	}
+	if opts.Comments != nil {
+		if err := os.MkdirAll(filepath.Join(outputDir, "comments"), 0o755); err != nil {
+			return "", fmt.Errorf("creating comments export directory: %w", err)
+		}
+	}
 
 	if downloader != nil {
 		for _, item := range tree.WorkItems {
@@ -73,8 +80,25 @@ func ExportContext(ctx context.Context, downloader AttachmentDownloader, opts Ex
 		if err := writePrettyJSON(itemPath, item); err != nil {
 			return "", err
 		}
+		itemComments := []WorkItemReadComment(nil)
+		if opts.Comments != nil {
+			itemComments = opts.Comments[item.ID]
+			if itemComments == nil {
+				itemComments = []WorkItemReadComment{}
+			}
+			if err := writePrettyJSON(filepath.Join(outputDir, "comments", strconv.Itoa(item.ID)+".json"), WorkItemComments{
+				WorkItemID: item.ID,
+				Comments:   itemComments,
+			}); err != nil {
+				return "", err
+			}
+		}
 		htmlPath := filepath.Join(outputDir, "html", strconv.Itoa(item.ID)+".html")
-		if err := os.WriteFile(htmlPath, []byte(renderHTML(item)), 0o644); err != nil {
+		htmlContent := renderHTML(item)
+		if opts.Comments != nil {
+			htmlContent += renderWorkItemCommentsHTML(itemComments)
+		}
+		if err := os.WriteFile(htmlPath, []byte(htmlContent), 0o644); err != nil {
 			return "", fmt.Errorf("writing HTML for work item %d: %w", item.ID, err)
 		}
 	}
@@ -101,6 +125,9 @@ func newIndex(opts ExportOptions, tree *WorkItemTree) Index {
 			HTMLPath:        filepath.ToSlash(filepath.Join("html", id+".html")),
 			AttachmentsPath: filepath.ToSlash(filepath.Join("attachments", id)),
 		})
+		if opts.Comments != nil {
+			items[len(items)-1].CommentsPath = filepath.ToSlash(filepath.Join("comments", id+".json"))
+		}
 	}
 
 	return Index{

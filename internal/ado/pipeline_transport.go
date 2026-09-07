@@ -34,11 +34,21 @@ func isPipelineLoopbackHost(hostname string) bool {
 }
 
 func (c *Client) pipelineGET(ctx context.Context, httpClient *http.Client, requestURL, action string) ([]byte, http.Header, error) {
+	return c.pipelineGETWithLimit(ctx, httpClient, requestURL, action, "", maxPipelineResponseBytes)
+}
+
+func (c *Client) pipelineGETWithLimit(ctx context.Context, httpClient *http.Client, requestURL, action, accept string, maxBody int64) ([]byte, http.Header, error) {
+	if maxBody < 1 {
+		return nil, nil, fmt.Errorf("%s: response exceeds maximum size of %d bytes", action, maxBody)
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, requestURL, nil)
 	if err != nil {
 		return nil, nil, fmt.Errorf("%s: could not create request", action)
 	}
 	c.authorize(req)
+	if accept != "" {
+		req.Header.Set("Accept", accept)
+	}
 
 	resp, err := httpClient.Do(req)
 	if err != nil {
@@ -52,15 +62,15 @@ func (c *Client) pipelineGET(ctx context.Context, httpClient *http.Client, reque
 		}
 		return nil, nil, fmt.Errorf("%s: Azure DevOps returned HTTP status %d; verify the project, permissions, and credentials", action, resp.StatusCode)
 	}
-	if resp.ContentLength > maxPipelineResponseBytes {
-		return nil, nil, fmt.Errorf("%s: response exceeds maximum size of %d bytes", action, maxPipelineResponseBytes)
+	if resp.ContentLength > maxBody {
+		return nil, nil, fmt.Errorf("%s: response exceeds maximum size of %d bytes", action, maxBody)
 	}
-	body, err := io.ReadAll(io.LimitReader(resp.Body, maxPipelineResponseBytes+1))
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxBody+1))
 	if err != nil {
 		return nil, nil, fmt.Errorf("%s: could not read response", action)
 	}
-	if int64(len(body)) > maxPipelineResponseBytes {
-		return nil, nil, fmt.Errorf("%s: response exceeds maximum size of %d bytes", action, maxPipelineResponseBytes)
+	if int64(len(body)) > maxBody {
+		return nil, nil, fmt.Errorf("%s: response exceeds maximum size of %d bytes", action, maxBody)
 	}
 	return body, resp.Header.Clone(), nil
 }
@@ -99,12 +109,15 @@ func (c *Client) pipelineHTTPClient() (*http.Client, bool) {
 	return &httpClient, ownsTransport
 }
 
-func (c *Client) pipelineRunsURL(continuationToken string) string {
+func (c *Client) pipelineRunsURL(continuationToken, branchName string) string {
 	u := *c.baseURL
 	setURLPathSegments(&u, c.config.Project, "_apis", "build", "builds")
 	query := u.Query()
 	query.Set("statusFilter", "inProgress")
 	query.Set("queryOrder", "queueTimeDescending")
+	if branchName != "" {
+		query.Set("branchName", branchName)
+	}
 	if continuationToken != "" {
 		query.Set("continuationToken", continuationToken)
 	}
@@ -113,12 +126,15 @@ func (c *Client) pipelineRunsURL(continuationToken string) string {
 	return u.String()
 }
 
-func (c *Client) pipelineRecentRunsURL(continuationToken string, remaining int) string {
+func (c *Client) pipelineRecentRunsURL(continuationToken string, remaining int, branchName string) string {
 	u := *c.baseURL
 	setURLPathSegments(&u, c.config.Project, "_apis", "build", "builds")
 	query := u.Query()
 	query.Set("$top", strconv.Itoa(remaining))
 	query.Set("queryOrder", "queueTimeDescending")
+	if branchName != "" {
+		query.Set("branchName", branchName)
+	}
 	if continuationToken != "" {
 		query.Set("continuationToken", continuationToken)
 	}

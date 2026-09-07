@@ -2,7 +2,9 @@
 
 ## Purpose
 Define the public command layout and stream behavior for the `adomi` CLI.
+
 ## Requirements
+
 ### Requirement: Cobra-backed root command
 
 The system SHALL expose the `adomi` CLI through a Cobra command tree while preserving the programmatic `Run(args, stdin, stdout, stderr)` execution boundary.
@@ -117,7 +119,7 @@ The system SHALL preserve Azure DevOps-specific commands under `adomi ado`.
 
 #### Scenario: Pull request namespace help lists supported operations
 - **WHEN** the user requests help for `adomi ado pr`
-- **THEN** the help output lists the supported `fetch`, `ensure`, `comment`, `reply`, `resolve`, and `reopen` operations
+- **THEN** the help output lists the supported `fetch`, `ensure`, `link`, `comment`, `reply`, `resolve`, `reopen`, `complete`, `auto-complete`, `cancel-auto-complete`, `abandon`, `approve`, `approve-with-suggestions`, and `reject` operations
 
 #### Scenario: Pull request ensure command
 - **WHEN** the user runs `adomi ado pr ensure` with valid inferred repository context, valid configuration, and valid credentials
@@ -138,6 +140,22 @@ The system SHALL preserve Azure DevOps-specific commands under `adomi ado`.
 #### Scenario: Pull request reopen command
 - **WHEN** the user runs `adomi ado pr reopen <pull-request-id> --thread <thread-id>` with valid configuration and credentials
 - **THEN** the command marks the requested pull request thread active
+
+#### Scenario: Complete pull request command
+- **WHEN** the user runs `adomi ado pr complete <pull-request-id>` with valid arguments, configuration, credentials, preflight state, and permissions
+- **THEN** the command requests immediate completion of that pull request through the repository-scoped Azure DevOps Git API
+
+#### Scenario: Auto-complete pull request commands
+- **WHEN** the user runs `adomi ado pr auto-complete <pull-request-id>` or `adomi ado pr cancel-auto-complete <pull-request-id>` with valid arguments, configuration, credentials, preflight state, and permissions
+- **THEN** the command explicitly enables or cancels policy-gated auto-completion for that pull request
+
+#### Scenario: Abandon pull request command
+- **WHEN** the user runs `adomi ado pr abandon <pull-request-id>` with valid arguments, configuration, credentials, preflight state, and permissions
+- **THEN** the command closes the pull request without merging it
+
+#### Scenario: Authenticated-user pull request vote commands
+- **WHEN** the user runs `adomi ado pr approve <pull-request-id>`, `adomi ado pr approve-with-suggestions <pull-request-id>`, or `adomi ado pr reject <pull-request-id>` with valid arguments, configuration, credentials, preflight state, and permissions
+- **THEN** the command casts the corresponding vote only for the authenticated Azure DevOps user
 
 #### Scenario: Export metadata records Azure DevOps source context
 - **WHEN** `adomi ado fetch <work-item-id>`, `adomi ado pr fetch <pull-request-id>`, or `adomi ado pr <pull-request-id>` succeeds
@@ -331,15 +349,15 @@ The system SHALL treat an HTTP redirect returned to a network-backed `adomi ado`
 - **THEN** the command preserves its existing decoding, download, and success-output behavior
 
 ### Requirement: Azure DevOps pipeline run commands
-The system SHALL expose one-shot read-only pipeline run inspection through `adomi ado pipeline list [--last <N>] [--profile <profile-name>] [--global]` and `adomi ado pipeline get <run-id> [--profile <profile-name>] [--global]`. Without `--last`, `pipeline list` SHALL retain its exact existing behavior of listing `inProgress` runs; with `--last <N>`, it SHALL list the N most recently queued runs across any status.
+The system SHALL expose one-shot read-only pipeline run inspection through `adomi ado pipeline list [--branch <branch>] [--last <N>] [--profile <profile-name>] [--global]` and `adomi ado pipeline get <run-id> [--profile <profile-name>] [--global]`, plus detailed repository-local export through `adomi ado pipeline inspect <run-id> [--profile <profile-name>] [--global] [--json]`. Without `--last`, `pipeline list` SHALL list `inProgress` runs; with `--last <N>`, it SHALL list the N most recently queued runs across any status. Optional branch filtering SHALL constrain either mode server-side; omission SHALL preserve existing behavior.
 
 #### Scenario: Pipeline namespace appears in Azure DevOps help
 - **WHEN** the user requests help for `adomi ado`
 - **THEN** the help output lists the `pipeline` namespace as read-only Azure DevOps status inspection
 
 #### Scenario: Pipeline command help describes scope and output
-- **WHEN** the user requests help for `adomi ado pipeline`, `adomi ado pipeline list`, or `adomi ado pipeline get`
-- **THEN** help describes the exact `inProgress` default list scope and the `--last <N>` recent-runs mode across YAML and classic Build pipelines, their best-effort one-shot rather than transactional snapshot semantics, the `--last` range `1..200`, run-ID range `1..2147483647`, profile/global and repository behavior, HTTPS-or-loopback transport requirement, compact JSON fields and nullable result semantics, `vso.build` read scope, and the exclusion of polling, execution detail, mutation, and classic Release deployments
+- **WHEN** the user requests help for `adomi ado pipeline`, `adomi ado pipeline list`, `adomi ado pipeline get`, or `adomi ado pipeline inspect`
+- **THEN** help describes the exact `inProgress` default list scope and the `--last <N>` recent-runs mode across YAML and classic Build pipelines, their best-effort one-shot rather than transactional snapshot semantics, the `--last` range `1..200`, run-ID range `1..2147483647`, profile/global and repository behavior, HTTPS-or-loopback transport requirement, compact JSON fields and nullable result semantics, `vso.build` read scope, and branch filtering, list/get exclusion of execution detail, inspect bundle scope and path/JSON output, its additional `vso.test` read scope and fixed budgets, and the exclusion of polling, mutation, arbitrary artifacts, test attachments, and classic Release deployments
 
 #### Scenario: List in-progress pipeline runs
 - **WHEN** the user runs `adomi ado pipeline list` without `--last` inside a repository with valid configuration and credentials
@@ -358,7 +376,7 @@ The system SHALL expose one-shot read-only pipeline run inspection through `adom
 - **THEN** the command resolves the Azure DevOps profile and credential using the same repository/global scope rules as the existing network-backed `adomi ado` commands
 
 #### Scenario: Pipeline commands require a repository
-- **WHEN** either pipeline command runs outside a Git repository, including with `--global`
+- **WHEN** any pipeline command runs outside a Git repository, including with `--global`
 - **THEN** it exits non-zero before loading configuration or credentials
 
 #### Scenario: Pipeline list rejects invalid arguments early
@@ -378,7 +396,7 @@ The system SHALL expose one-shot read-only pipeline run inspection through `adom
 - **THEN** argument validation succeeds with that exact ID independently of machine word size
 
 #### Scenario: Pipeline command failure leaves stdout empty
-- **WHEN** repository resolution, configuration, credential lookup, HTTP client construction, Build API access, pagination, response validation, projection, or JSON encoding fails
+- **WHEN** repository resolution, configuration, credential lookup, HTTP client construction, Build/Test API access, pagination, response validation, projection, export, or JSON encoding fails
 - **THEN** the command exits non-zero and stdout contains no success data
 
 #### Scenario: Pipeline HTTP failure keeps stderr confidential
@@ -388,6 +406,18 @@ The system SHALL expose one-shot read-only pipeline run inspection through `adom
 #### Scenario: Pipeline command help is side-effect free
 - **WHEN** a pipeline namespace or action help request includes `--help` or `-h`
 - **THEN** the command exits successfully, leaves stdout empty, and writes help to stderr before resolving repository state, loading configuration, reading credentials, creating an HTTP client, or contacting Azure DevOps
+
+#### Scenario: Pipeline branch arguments are validated early
+- **WHEN** `pipeline list` receives a missing, blank, or repeated `--branch` value, or branch is supplied to get or inspect
+- **THEN** it exits nonzero with empty stdout before configuration, credentials, or network access
+
+#### Scenario: Inspect validates identifier and flags early
+- **WHEN** `pipeline inspect` receives an invalid run ID under the same range rules as get, unexpected positionals, missing option values, repeated flags, or unknown flags
+- **THEN** it exits nonzero before loading credentials or contacting Azure DevOps and leaves stdout empty
+
+#### Scenario: Inspect help is sufficient without credentials
+- **WHEN** a user requests `adomi ado pipeline inspect --help`
+- **THEN** help describes run-ID validation, profile/global scope, repository requirement, export paths, plain/JSON output, current-attempt scope, failed-task-log selection, published tests, permissions, limits, and failure behavior before any credential or network access
 
 ### Requirement: Azure DevOps wiki fetch command
 The system SHALL expose read-only wiki context fetching through `adomi ado wiki fetch <wiki-id-or-name> --page <absolute-wiki-page-path> [--recursive] [--profile <profile-name>] [--global]`.
@@ -462,3 +492,75 @@ The system SHALL expose deterministic CLI parsing, help, output, and failure beh
 #### Scenario: Link failure leaves stdout empty
 - **WHEN** link validation, preflight, authentication, network access, decoding, revision testing, or any relation update fails
 - **THEN** the command exits non-zero and stdout is empty even if an earlier work-item link from the same invocation was already persisted
+
+### Requirement: Pull request lifecycle and vote command syntax
+The system SHALL expose each supported pull request lifecycle transition and authenticated-user vote as an explicit `adomi ado pr` subcommand, SHALL accept completion preferences only on completion commands, and SHALL reject malformed invocations before credential or network access.
+
+#### Scenario: Immediate completion command syntax
+- **WHEN** the user runs `adomi ado pr complete <pull-request-id>` with optional `--merge-strategy <strategy>`, `--delete-source-branch <true|false>`, `--transition-work-items <true|false>`, `--merge-commit-message <text>`, `--profile <name>`, `--global`, or `--json`
+- **THEN** the command accepts exactly one positive pull request ID and sends the validated completion request through the selected Azure DevOps profile
+
+#### Scenario: Auto-completion command syntax
+- **WHEN** the user runs `adomi ado pr auto-complete <pull-request-id>` with optional `--merge-strategy <strategy>`, `--delete-source-branch <true|false>`, `--transition-work-items <true|false>`, `--merge-commit-message <text>`, `--profile <name>`, `--global`, or `--json`
+- **THEN** the command accepts exactly one positive pull request ID and sends the validated auto-completion request through the selected Azure DevOps profile
+
+#### Scenario: State-only lifecycle command syntax
+- **WHEN** the user runs `adomi ado pr cancel-auto-complete <pull-request-id>` or `adomi ado pr abandon <pull-request-id>` with optional `--profile <name>`, `--global`, or `--json`
+- **THEN** the command accepts exactly one positive pull request ID and does not accept completion preference flags
+
+#### Scenario: Authenticated-user vote command syntax
+- **WHEN** the user runs `adomi ado pr approve <pull-request-id>`, `adomi ado pr approve-with-suggestions <pull-request-id>`, or `adomi ado pr reject <pull-request-id>` with optional `--profile <name>`, `--global`, or `--json`
+- **THEN** the command accepts exactly one positive pull request ID and does not accept a reviewer identity or raw vote value
+
+#### Scenario: Invalid lifecycle or vote invocation
+- **WHEN** a lifecycle or vote command receives a missing, zero, negative, non-numeric, or extra pull request ID; an unknown flag; a completion preference on an unsupported command; or conflicting profile selection flags
+- **THEN** the command exits non-zero before loading credentials or making an Azure DevOps request and leaves stdout empty
+
+### Requirement: Pull request lifecycle and vote output
+The system SHALL preserve Adomi's script-safe stdout contract for pull request governance commands and SHALL expose the returned state needed to distinguish completion, scheduling, cancellation, abandonment, voting, and idempotent outcomes in JSON mode.
+
+#### Scenario: Plain lifecycle or vote success
+- **WHEN** a supported pull request lifecycle or vote command succeeds without `--json`
+- **THEN** stdout contains only the pull request ID followed by a newline
+
+#### Scenario: JSON lifecycle success
+- **WHEN** a completion, auto-completion, cancellation, or abandonment command succeeds with `--json`
+- **THEN** stdout contains exactly one compact JSON object followed by a newline with `pullRequestId`, `action`, and `status`, plus returned `mergeStatus` or `autoCompleteEnabled` fields when they apply
+
+#### Scenario: JSON vote success
+- **WHEN** an approve, approve-with-suggestions, or reject command succeeds with `--json`
+- **THEN** stdout contains exactly one compact JSON object followed by a newline with `pullRequestId`, `action`, `status`, `reviewerId`, and the exact numeric `vote`
+
+#### Scenario: Idempotent JSON success
+- **WHEN** the requested lifecycle state or authenticated-user vote already exists and the command succeeds with `--json`
+- **THEN** the JSON result reports action `unchanged` and the fetched current state without claiming that a write occurred
+
+#### Scenario: Governance command failure
+- **WHEN** argument validation, configuration, authentication, preflight, Azure DevOps mutation, or response-state validation fails
+- **THEN** the command exits non-zero, reports the error through the error or stderr path, and leaves stdout empty
+
+### Requirement: Pull request lifecycle and vote help
+The system SHALL provide side-effect-free help for every supported pull request lifecycle and vote command and SHALL identify the commands as explicit Azure DevOps writes.
+
+#### Scenario: Lifecycle command help
+- **WHEN** the user requests help for `complete`, `auto-complete`, `cancel-auto-complete`, or `abandon`
+- **THEN** the help names the required pull request ID, supported flags, resulting state, asynchronous behavior where applicable, policy-respecting boundary, and relevant terminal-state restrictions without loading credentials or contacting Azure DevOps
+
+#### Scenario: Vote command help
+- **WHEN** the user requests help for `approve`, `approve-with-suggestions`, or `reject`
+- **THEN** the help states that the command votes only as the authenticated user, identifies the vote meaning, and does not offer arbitrary reviewer selection without loading credentials or contacting Azure DevOps
+
+### Requirement: Investigation additions have explicit parsing and help
+The system SHALL route `adomi ado pr list` as a read-only action and accept `--include-comments` on work-item fetch. PR list SHALL support only optional `--source`, `--target`, `--status`, `--repository`, `--profile`, and `--global` flags and SHALL emit compact JSON without requiring a JSON flag. Existing profile/global selection, repository requirements, path-only fetch output, and fetch JSON shape SHALL be preserved. Help SHALL return successfully to stderr before repository/configuration/credential/file/network access.
+
+#### Scenario: PR list is discoverable and validates before execution
+- **WHEN** a user requests PR namespace/list help or invokes list with invalid status, blank/missing flag value, repeated flag, positional argument, or unsupported flag
+- **THEN** help lists discovery alongside existing operations and explains defaults, normalization, paging, repository selection, read permission, and JSON output, while invalid invocations fail before credentials/network with empty stdout
+
+#### Scenario: Fetch help explains comment inclusion
+- **WHEN** a user requests work-item fetch help
+- **THEN** help describes opt-in comments on every exported item, non-deleted current-version scope, artifact paths, unchanged stdout, read permission, and retrieval-failure behavior
+
+#### Scenario: Duplicate comment inclusion is rejected
+- **WHEN** work-item fetch receives `--include-comments` more than once or an unsupported assigned value
+- **THEN** parsing fails before credential/network access with empty stdout

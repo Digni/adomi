@@ -46,7 +46,7 @@ func (r Runner) newADOCommand(stdin io.Reader, stdout, stderr io.Writer) *cobra.
 		r.newADOWorkItemCommand(stdout),
 		r.newADOPullRequestCommand(stdout, stderr),
 		r.newADOWikiCommand(stdout, stderr),
-		r.newADOPipelineCommand(stdout),
+		r.newADOPipelineCommand(stdout, stderr),
 		r.newADOLoginCommand(stdin, stdout, stderr),
 		r.newADOLogoutCommand(stdout, stderr),
 		r.newADOProfilesCommand(stdout),
@@ -55,7 +55,7 @@ func (r Runner) newADOCommand(stdin io.Reader, stdout, stderr io.Writer) *cobra.
 	return adoCmd
 }
 
-func (r Runner) newADOPipelineCommand(stdout io.Writer) *cobra.Command {
+func (r Runner) newADOPipelineCommand(stdout, stderr io.Writer) *cobra.Command {
 	pipelineCmd := &cobra.Command{
 		Use:   "pipeline",
 		Short: "Inspect read-only Azure DevOps pipeline run status",
@@ -65,13 +65,13 @@ func (r Runner) newADOPipelineCommand(stdout io.Writer) *cobra.Command {
 			return fmt.Errorf("usage: adomi ado pipeline <command>")
 		},
 	}
-	pipelineCmd.AddCommand(r.newADOPipelineListCommand(stdout), r.newADOPipelineGetCommand(stdout))
+	pipelineCmd.AddCommand(r.newADOPipelineListCommand(stdout), r.newADOPipelineGetCommand(stdout), r.newADOPipelineInspectCommand(stdout, stderr))
 	return pipelineCmd
 }
 
 func (r Runner) newADOPipelineListCommand(stdout io.Writer) *cobra.Command {
 	return &cobra.Command{
-		Use:                "list [--last <N>] [--profile <profile-name>] [--global]",
+		Use:                "list [--branch <branch>] [--last <N>] [--profile <profile-name>] [--global]",
 		Short:              "List in-progress or recent Azure DevOps pipeline runs",
 		Long:               adoPipelineHelp,
 		DisableFlagParsing: true,
@@ -126,7 +126,7 @@ func (r Runner) newADOWikiFetchCommand(stdout, stderr io.Writer) *cobra.Command 
 
 func (r Runner) newADOFetchCommand(stdout, stderr io.Writer) *cobra.Command {
 	return &cobra.Command{
-		Use:                "fetch <work-item-id> [--profile <profile-name>] [--global] [--json]",
+		Use:                "fetch <work-item-id> [--profile <profile-name>] [--global] [--json] [--include-comments]",
 		Short:              "Fetch Azure DevOps work item context",
 		Long:               adoFetchHelp,
 		DisableFlagParsing: true,
@@ -171,9 +171,10 @@ func (r Runner) newADOWorkItemCommand(stdout io.Writer) *cobra.Command {
 
 func (r Runner) newADOPullRequestCommand(stdout, stderr io.Writer) *cobra.Command {
 	return &cobra.Command{
-		Use:   "pr <pull-request-id>|fetch|ensure|link|comment|reply|resolve|reopen|complete|auto-complete|cancel-auto-complete|abandon|approve|approve-with-suggestions|reject",
+		Use:   "pr <pull-request-id>|list|fetch|ensure|link|comment|reply|resolve|reopen|complete|auto-complete|cancel-auto-complete|abandon|approve|approve-with-suggestions|reject",
 		Short: "Manage Azure DevOps pull request context and maintenance",
-		Long: "Manage Azure DevOps pull request context, maintenance, and explicit governance writes. Supported operations: fetch, ensure, link, comment, reply, resolve, reopen, complete, auto-complete, cancel-auto-complete, abandon, approve, approve-with-suggestions, and reject. " +
+		Long: "Manage Azure DevOps pull request context, maintenance, and explicit governance writes. Supported operations: list, fetch, ensure, link, comment, reply, resolve, reopen, complete, auto-complete, cancel-auto-complete, abandon, approve, approve-with-suggestions, and reject. " +
+			"Use `list` to discover repository pull requests by source, target, and status. " +
 			"Use `comment` without file flags for PR-level threads, or with paired `--file <path> --line <line>` for latest-version right-side inline threads. " +
 			"Governance verbs perform only the explicitly named lifecycle or authenticated-user vote write and remain subject to repository policy. " +
 			"The compatibility form `adomi ado pr <pull-request-id>` behaves like `adomi ado pr fetch <pull-request-id>`.",
@@ -257,6 +258,8 @@ func prOperationHelp(args []string) (string, bool) {
 	switch args[0] {
 	case "fetch":
 		return adoPRFetchHelp, true
+	case "list":
+		return adoPRListHelp, true
 	case "ensure":
 		return adoPREnsureHelp, true
 	case "link":

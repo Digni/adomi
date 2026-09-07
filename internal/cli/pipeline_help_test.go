@@ -20,6 +20,7 @@ func TestADOPipelineNamespaceHelpDescribesContract(t *testing.T) {
 	for _, want := range []string{
 		"adomi ado pipeline list",
 		"adomi ado pipeline get <run-id>",
+		"adomi ado pipeline inspect <run-id>",
 	} {
 		if !strings.Contains(stderr, want) {
 			t.Fatalf("stderr = %q, want %q", stderr, want)

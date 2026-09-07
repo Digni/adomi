@@ -76,15 +76,15 @@ The system SHALL create a `SKILL.md` entry file with valid skill front matter an
 
 #### Scenario: Generated SKILL describes PR maintenance safety boundary
 - **WHEN** the user runs `adomi agent skill` from any repository
-- **THEN** the created `SKILL.md` tells agents that `adomi` PR maintenance does not approve, reject, merge, complete, abandon, set auto-complete, bypass policies, or manage reviewers
+- **THEN** the created `SKILL.md` documents the explicit completion, auto-completion, auto-complete cancellation, abandonment, approval, approval-with-suggestions, and rejection commands while stating that arbitrary reviewer management, vote reset, wait-for-author voting, policy bypass, abandoned-PR reactivation, and completed-PR reversion remain unavailable
 
 #### Scenario: Generated SKILL instructs context-before-maintenance workflow
 - **WHEN** the user runs `adomi agent skill` from any repository
-- **THEN** the created `SKILL.md` instructs agents to fetch and inspect pull request context before replying to or resolving review threads unless the user has already provided the relevant thread details
+- **THEN** the created `SKILL.md` instructs agents to fetch and inspect pull request context before replying to or resolving review threads or performing a lifecycle or vote mutation unless the user has already provided the relevant current details
 
 #### Scenario: Generated SKILL mentions required write scopes without exposing secrets
 - **WHEN** the user runs `adomi agent skill` from any repository
-- **THEN** the created `SKILL.md` notes that PR maintenance requires Azure DevOps credentials with appropriate PR/thread write permissions while preserving the existing instruction never to print, log, echo, commit, or expose PAT values
+- **THEN** the created `SKILL.md` notes that PR maintenance, lifecycle, and reviewer-vote operations require Azure DevOps credentials with code write permission while preserving the existing instruction never to print, log, echo, commit, or expose PAT values
 
 #### Scenario: Generated SKILL documents configuration commands
 - **WHEN** the user runs `adomi agent skill` from any repository
@@ -189,3 +189,45 @@ The system SHALL teach generated Adomi skills how to link explicitly named Azure
 #### Scenario: Generated skill documents permissions and boundary
 - **WHEN** the user runs `adomi agent skill`
 - **THEN** the created `SKILL.md` states that PR work-item linking requires code read and work-item write permission, keeps PAT values secret, and does not imply support for unlinking, generic work-item relation edits, work-item field/state changes, PR voting, approval, merge, completion, or reviewer management
+
+### Requirement: Generated skill governs pull request lifecycle and voting
+The generated Adomi skill SHALL teach coding agents to treat completion, auto-completion, cancellation, abandonment, and reviewer voting as explicit external writes that require current pull request context and direct user authorization.
+
+#### Scenario: Agent must inspect current pull request state
+- **WHEN** a generated skill describes a supported lifecycle or vote command
+- **THEN** it instructs the agent to fetch and inspect the pull request immediately before the mutation unless equivalent current state was supplied by the user
+
+#### Scenario: Agent must have explicit authorization
+- **WHEN** an agent considers invoking `complete`, `auto-complete`, `cancel-auto-complete`, `abandon`, `approve`, `approve-with-suggestions`, or `reject`
+- **THEN** the generated skill instructs it to proceed only when the user explicitly requested that exact governance outcome and not infer authorization from a request to create, update, review, or discuss a pull request
+
+#### Scenario: Agent understands completion behavior
+- **WHEN** the generated skill documents immediate or automatic completion
+- **THEN** it explains supported completion preference flags, branch-policy enforcement, source-commit pinning for immediate completion, the possibility that auto-complete finishes immediately, and that commands return without polling for final merge success
+
+#### Scenario: Agent understands authenticated-user voting
+- **WHEN** the generated skill documents approval, approval with suggestions, and rejection
+- **THEN** it explains that the vote is cast only as the authenticated Azure DevOps user and that arbitrary reviewer management and raw vote selection remain unavailable
+
+#### Scenario: Agent understands auto-complete cancellation
+- **WHEN** the generated skill documents auto-completion
+- **THEN** it also documents `adomi ado pr cancel-auto-complete <pull-request-id>` and explains that cancellation applies only while the pull request remains active
+
+### Requirement: Generated skill documents investigation discovery and evidence exports
+The generated skill SHALL teach agents to use PR discovery when work-item links are insufficient, server-side pipeline branch history when project-wide recent runs are noisy, opt-in work-item comment export for handover context, and pipeline inspect for execution evidence. It SHALL distinguish selection, output, read permissions, and evidence limitations while preserving existing governance authorization and host-keyring execution guidance.
+
+#### Scenario: Agent discovers a branch PR and pipeline history
+- **WHEN** the generated skill is read for a branch investigation
+- **THEN** it documents `adomi ado pr list --source <branch> --status all` with repository/target options and bounded complete pagination, and `adomi ado pipeline list --branch <branch> --last 10` with server-side filtering and unchanged default list scope
+
+#### Scenario: Agent gathers discussion and execution evidence
+- **WHEN** the agent needs handover context or to explain what a run executed
+- **THEN** the skill documents `adomi ado fetch <id> --include-comments` for current discussion on all exported items and `adomi ado pipeline inspect <run-id>` for its execution/log/test bundle, then instructs the agent to read the resulting files
+
+#### Scenario: Agent interprets evidence conservatively
+- **WHEN** inspection returns skipped work, no published tests, or a retrieval error
+- **THEN** the skill explains that overall success is not proof every task/test ran, no published tests does not mean no tests executed, and failed retrieval is not empty evidence; it documents additional Test-read permission and one-shot/current-attempt scope
+
+#### Scenario: Existing agent boundaries remain intact
+- **WHEN** the generated skill includes the new commands
+- **THEN** it retains host-capable execution for every adomi invocation, PAT confidentiality, and the explicit authorization boundaries for PR/work-item writes

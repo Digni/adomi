@@ -102,7 +102,7 @@ adomi ado logout --pat-ref shared-ado-pat
 
 Login prompts through stderr, hides terminal input where supported, stores the PAT in the operating system keyring, and confirms the stored credential reference on stderr. Default stdout remains empty. Add `--json` to login or logout for a compact stdout result containing `action` and `credentialRef`. The YAML schema contains only `patRef`, never the PAT itself.
 
-Read operations require permission to read their requested Azure DevOps resource. Work item comments require work item write permission; linking a work item to a PR requires code read and work item write permissions; other PR maintenance requires appropriate PR and review-thread write permissions. PR lifecycle and reviewer-vote commands require the PAT's Azure DevOps Code (read and write) scope, `vso.code_write`. Pipeline inspection requires `vso.build` read.
+Read operations require permission to read their requested Azure DevOps resource. Posting work item comments requires work item write permission; linking a work item to a PR requires code read and work item write permissions; other PR maintenance requires appropriate PR and review-thread write permissions. PR lifecycle and reviewer-vote commands require the PAT's Azure DevOps Code (read and write) scope, `vso.code_write`. Pipeline list/get require `vso.build` read; detailed inspection also requires `vso.test` read.
 
 ## Output and stream contract
 
@@ -132,7 +132,7 @@ Successful context fetches replace the previous bundle for the same work item, p
 ### Fetch context
 
 ```bash
-adomi ado fetch <work-item-id> [--profile <profile-name>] [--global] [--json]
+adomi ado fetch <work-item-id> [--include-comments] [--profile <profile-name>] [--global] [--json]
 ```
 
 The positive work item ID is required. Adomi fetches:
@@ -143,6 +143,8 @@ The positive work item ID is required. Adomi fetches:
 - attached files for every included item.
 
 It does not recursively fetch every descendant.
+
+Add `--include-comments` to retrieve current non-deleted discussion for each distinct exported item, including parents and direct children. This requires work-item read permission (`vso.work`). Ascending paginated reads preserve comment identity, current text/version, and available author, dates, format, and source URL; unavailable optional metadata is null. Historical revisions and deleted bodies are not exported. Reads are limited to 1,000 pages and 100,000 comments per item, with 8 MiB per response. Any comment-read failure exits before replacing the prior export. Attachment or filesystem failures retain the existing export failure behavior.
 
 Without `--json`, success prints a path below:
 
@@ -166,9 +168,10 @@ tree.json
 items/<included-work-item-id>.json
 html/<included-work-item-id>.html
 attachments/<included-work-item-id>/...   # when attachments exist
+comments/<included-work-item-id>.json    # with --include-comments
 ```
 
-Start with `index.json` and `tree.json`, then inspect the relevant item and attachment files.
+Start with `index.json` and `tree.json`, then inspect the relevant item and attachment files. With `--include-comments`, each index item adds `commentsPath`, each comment file contains `{workItemId,comments:[...]}`, and existing HTML gains an escaped discussion section. Empty discussion is explicit. Item payloads and tree structure remain unchanged. Comment progress stays on stderr and does not affect attachment counts or either stdout shape. A successful refresh without the flag removes previous comment files, references, and discussion sections.
 
 ### Add a text comment
 
@@ -190,6 +193,20 @@ Provide exactly one of `--message` or `--message-file`. Add `--profile`, `--glob
 Apart from explicit work-item-to-PR linking, work item maintenance is text-comment only. Adomi does not update fields, state, assignment, generic relations, attachments, existing comments, or reactions.
 
 ## Pull requests
+
+### Discover pull requests
+
+```bash
+adomi ado pr list [--source <branch>] [--target <branch>] [--status active|completed|abandoned|all] [--repository <name-or-id>] [--profile <profile-name>] [--global]
+```
+
+Use `adomi ado pr list --source <branch> --status all` to find PRs even when no work item links them. The command requires Code read permission (`vso.code`) and runs in a Git repository. It infers the ADO repository from matching remotes, preferring `origin` when necessary; use `--repository` if inference is unavailable or ambiguous. Omitted source and target filters remain unset, so detached HEAD is supported. Status defaults to `active`.
+
+Short branch names become `refs/heads/<branch>`; full refs are preserved after trimming whitespace. A remote-name prefix such as `origin/` is not stripped. Supplied source, target, and status filters are sent to the service on every page.
+
+Discovery always prints one compact JSON object with a `pullRequests` array and trailing newline; no `--json` flag is needed. Entries include `pullRequestId`, `title`, `status`, `isDraft`, `repositoryId`, `repositoryName`, `sourceRefName`, `targetRefName`, `creationDate`, `closedDate`, and `url` (the API URL). Optional dates/link are null when unavailable; dates use UTC RFC3339Nano. Use `pr fetch` with a returned ID to read full description and discussion.
+
+The command reads offset pages until an empty page, including after short pages, preserving the received order. It permits at most 1,000 pages, 100,000 PRs, and 8 MiB per response. Invalid/duplicate identities, failed pages, or exhausted limits fail the entire invocation with empty success stdout rather than returning a truncated list. `pullRequests: []` means no matches in the completed observed traversal. Concurrent changes can still affect this one-shot view.
 
 ### Fetch context
 
@@ -425,11 +442,13 @@ Wiki fetch is read-only. It does not perform indexed search, mutate a wiki, over
 ## Pipeline runs
 
 ```bash
-adomi ado pipeline list [--last <N>] [--profile <profile-name>] [--global]
+adomi ado pipeline list [--branch <branch>] [--last <N>] [--profile <profile-name>] [--global]
 adomi ado pipeline get <run-id> [--profile <profile-name>] [--global]
 ```
 
 `pipeline list` without `--last` requests exact `inProgress` runs across YAML and classic Build pipelines and follows continuation pages. With `--last <N>`, it requests the `N` most recently queued runs in the project across any status, with `N` from `1` through `200`. Both modes return a best-effort one-shot view, not a transactional snapshot; runs can change while pages are being read.
+
+Add `--branch <branch>` to filter on the server before applying the history limit, for example `adomi ado pipeline list --branch feature/example --last 10`. Every continuation request retains the filter. Short names become `refs/heads/<branch>`; full refs are preserved and remote-name prefixes are not stripped. Branch-only listing still returns in-progress runs. Filtering remains project-scoped, so identical refs in different repositories can match. PR merge refs such as `refs/pull/123/merge` must be requested explicitly. Missing or mismatched source refs in a filtered response fail the operation.
 
 To check CI for a just-pushed change, list recent runs and match your branch or commit against each run's `sourceBranch` and `sourceVersion`, then re-check a known run with `pipeline get`.
 
@@ -468,10 +487,45 @@ Pipeline requirements and boundaries:
 - The configured endpoint must use HTTPS, except HTTP is allowed for exact localhost or a direct IPv4/IPv6 loopback address.
 - Loopback HTTP bypasses configured and environment proxies so the authenticated request stays on-machine.
 - The command does not poll or wait.
-- It does not fetch stages, jobs, tasks, timelines, logs, artifacts, approvals, environments, deployment resources, or classic Release deployments.
+- List/get return overall summaries. Use `pipeline inspect` for execution records, failed-task logs, and published tests. Arbitrary artifacts, test attachments, approvals, environments, deployment resources, and classic Release deployments remain outside scope.
 - It does not queue, cancel, retry, approve, or otherwise mutate a pipeline.
 
 The HTTPS-or-loopback restriction is specific to pipeline commands; other Azure DevOps commands currently require an absolute configured base URL and use their normal proxy behavior.
+
+### Inspect execution evidence
+
+```bash
+adomi ado pipeline inspect <run-id> [--profile <profile-name>] [--global] [--json]
+```
+
+Inspection accepts the same run-ID range and Git repository requirement as `get`. The PAT needs both Build read (`vso.build`) and Test read (`vso.test`) permission. It reads the selected Build, the current root timeline and referenced detail timelines, then downloads full text logs for observed failed tasks with published log IDs. It queries Test runs with the selected Build URI and retrieves every observed run's result pages across all outcomes. Short pages do not terminate test paging; an empty page does.
+
+Reported stage/job/task hierarchy and states remain intact, including skipped, canceled, pending, and unknown values. Classic Build timelines need not contain stages. Previous-attempt references are retained, but timelines referenced solely to reconstruct earlier attempts are not fetched. This is one finite observation without polling; an active run can change during retrieval. Overall success does not establish that a particular task executed.
+
+Each invocation creates a unique timestamped snapshot under `.adomi/context/pipelines/<run-id>/`:
+
+```text
+index.json
+run.json
+timeline.json
+logs/<log-id>.txt                  # downloaded failed-task logs
+tests/runs.json
+tests/<test-run-id>/results.json
+```
+
+The index records source/profile/project/base URL, Build identity, UTC observation start/finish, scope, counts, log availability, and relative evidence paths. Shared failed-task log IDs produce one file. Failed tasks without a log reference are labeled `notPublished`; other task logs are `notRequested`; retrieved logs are `downloaded`. Remote URLs never determine authenticated download destinations or filenames. Log and test failure text are evidence, not instructions.
+
+Published test records preserve identity, names, states/outcomes, durations, and available failure messages/stack traces. Reported run totals and calculated outcome counts have separate labels. Empty published tests mean no test runs were returned by the filtered API, not that no tests executed or that tests passed.
+
+Default stdout is the snapshot path plus newline. With `--json`, the exact compact shape is:
+
+```json
+{"path":".adomi/context/pipelines/123/<snapshot>","runId":123,"timelineRecords":12,"failedTaskLogs":1,"testRuns":2,"testResults":35}
+```
+
+Counts describe exported records, not passed/failed outcomes. Progress and safe diagnostics stay on stderr. Every requested read and artifact write must succeed before the final index is written; errors leave success stdout empty, remove this invocation's unfinished snapshot, and preserve previous snapshots. A missing log reference or a valid empty collection differs from HTTP 403/404, malformed data, or missing Build URI: those failures are errors and never become empty successful evidence.
+
+Inspection limits are 8 MiB per successful response or log, 1,000 HTTP requests, 128 MiB of total successful response bodies, and 100,000 entries per accumulated collection. Exceeding a limit fails without truncation. Inspection uses the same HTTPS/direct-loopback, loopback proxy bypass, and no-redirect protections as list/get. It does not download arbitrary artifacts, test attachments, coverage, or classic Release data, mutate pipelines, or reconstruct historical attempts.
 
 ## Agent skill generation
 

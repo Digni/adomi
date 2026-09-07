@@ -14,6 +14,8 @@ import (
 func (r Runner) runADOPullRequest(args []string, stdout, stderr io.Writer) error {
 	if len(args) > 0 {
 		switch args[0] {
+		case "list":
+			return r.runADOPullRequestList(args[1:], stdout)
 		case "fetch":
 			return r.runADOPullRequestFetch(args[1:], stdout, stderr)
 		case "ensure":

@@ -6,7 +6,6 @@ import (
 	"io"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/Digni/adomi/internal/ado"
 )
@@ -21,10 +20,11 @@ func (r Runner) runADOPipelineList(args []string, stdout io.Writer) error {
 		return err
 	}
 	var runs []ado.PipelineRun
+	listOptions := ado.PipelineRunListOptions{BranchName: parsed.branch}
 	if parsed.last > 0 {
-		runs, err = client.ListRecentPipelineRuns(context.Background(), parsed.last)
+		runs, err = client.ListRecentPipelineRuns(context.Background(), parsed.last, listOptions)
 	} else {
-		runs, err = client.ListInProgressPipelineRuns(context.Background())
+		runs, err = client.ListInProgressPipelineRuns(context.Background(), listOptions)
 	}
 	if err != nil {
 		return err
@@ -52,40 +52,14 @@ func (r Runner) runADOPipelineGet(args []string, stdout io.Writer) error {
 	return writeJSONLine(stdout, projectPipelineRun(*run))
 }
 
-type pipelineRunResult struct {
-	ID            int        `json:"id"`
-	PipelineID    int        `json:"pipelineId"`
-	PipelineName  string     `json:"pipelineName"`
-	RunNumber     string     `json:"runNumber"`
-	Status        string     `json:"status"`
-	Result        *string    `json:"result"`
-	SourceBranch  *string    `json:"sourceBranch"`
-	SourceVersion *string    `json:"sourceVersion"`
-	QueueTime     *time.Time `json:"queueTime"`
-	StartTime     *time.Time `json:"startTime"`
-	FinishTime    *time.Time `json:"finishTime"`
-	WebURL        *string    `json:"webUrl"`
-}
+type pipelineRunResult = ado.PipelineRun
 
 type pipelineRunListResult struct {
 	Runs []pipelineRunResult `json:"runs"`
 }
 
 func projectPipelineRun(run ado.PipelineRun) pipelineRunResult {
-	return pipelineRunResult{
-		ID:            run.ID,
-		PipelineID:    run.PipelineID,
-		PipelineName:  run.PipelineName,
-		RunNumber:     run.RunNumber,
-		Status:        run.Status,
-		Result:        run.Result,
-		SourceBranch:  run.SourceBranch,
-		SourceVersion: run.SourceVersion,
-		QueueTime:     run.QueueTime,
-		StartTime:     run.StartTime,
-		FinishTime:    run.FinishTime,
-		WebURL:        run.WebURL,
-	}
+	return run
 }
 
 const maxRecentRunCount = 200
@@ -94,6 +68,7 @@ type pipelineListArgs struct {
 	profile string
 	global  bool
 	last    int
+	branch  string
 }
 
 type pipelineGetArgs struct {
@@ -103,11 +78,11 @@ type pipelineGetArgs struct {
 }
 
 func parsePipelineListArgs(args []string) (pipelineListArgs, error) {
-	flags, err := parsePipelineScopeFlags(args, true)
+	flags, err := parsePipelineScopeFlags(args, true, true)
 	if err != nil {
 		return pipelineListArgs{}, err
 	}
-	return pipelineListArgs{profile: flags.profile, global: flags.global, last: flags.last}, nil
+	return pipelineListArgs{profile: flags.profile, global: flags.global, last: flags.last, branch: flags.branch}, nil
 }
 
 func parsePipelineGetArgs(args []string) (pipelineGetArgs, error) {
@@ -118,7 +93,7 @@ func parsePipelineGetArgs(args []string) (pipelineGetArgs, error) {
 	if err != nil || runID < 1 {
 		return pipelineGetArgs{}, fmt.Errorf("pipeline run ID must be a decimal integer in the range 1..2147483647")
 	}
-	flags, err := parsePipelineScopeFlags(args[1:], false)
+	flags, err := parsePipelineScopeFlags(args[1:], false, false)
 	if err != nil {
 		return pipelineGetArgs{}, err
 	}
@@ -129,13 +104,15 @@ type pipelineScopeFlags struct {
 	profile string
 	global  bool
 	last    int
+	branch  string
 }
 
-func parsePipelineScopeFlags(args []string, allowLast bool) (pipelineScopeFlags, error) {
+func parsePipelineScopeFlags(args []string, allowLast, allowBranch bool) (pipelineScopeFlags, error) {
 	var flags pipelineScopeFlags
 	seenProfile := false
 	seenGlobal := false
 	seenLast := false
+	seenBranch := false
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
 		case "--last":
@@ -154,6 +131,24 @@ func parsePipelineScopeFlags(args []string, allowLast bool) (pipelineScopeFlags,
 				return pipelineScopeFlags{}, fmt.Errorf("--last must be a decimal integer in the range 1..%d", maxRecentRunCount)
 			}
 			flags.last = int(last)
+			i++
+		case "--branch":
+			if !allowBranch {
+				return pipelineScopeFlags{}, fmt.Errorf("unknown argument %q", args[i])
+			}
+			if seenBranch {
+				return pipelineScopeFlags{}, fmt.Errorf("--branch cannot be repeated")
+			}
+			seenBranch = true
+			branch, err := parseFlagValue("--branch", args, i)
+			if err != nil {
+				return pipelineScopeFlags{}, err
+			}
+			branch = strings.TrimSpace(branch)
+			if branch == "" {
+				return pipelineScopeFlags{}, fmt.Errorf("--branch requires a non-empty value")
+			}
+			flags.branch = normalizeBranchRef(branch)
 			i++
 		case "--profile":
 			if seenProfile {

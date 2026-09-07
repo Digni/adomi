@@ -26,14 +26,16 @@ The core loop is simple:
 | --- | --- | --- |
 | Configuration and credentials | `adomi config init`, `adomi ado login` | Repository or global profiles with PAT values kept in the OS keyring. |
 | Agent integration | `adomi agent skill --provider <name>` | Installs an Adomi skill globally or in the current project for Codex, OpenCode, Pi, GitHub Copilot, Cursor, or Claude. Existing skills require confirmation or `--force`/`--yes` to replace. |
-| Work item context | `adomi ado fetch <work-item-id>` | Exports the parent chain, direct children, JSON/HTML, and attachments under `.adomi/context/work-items/`. |
+| Work item context | `adomi ado fetch <work-item-id> [--include-comments]` | Exports the parent chain, direct children, JSON/HTML, attachments, and optional current discussion under `.adomi/context/work-items/`. |
 | Work item comments | `adomi ado comment <work-item-id> ...` | Adds one text comment. It cannot update fields, state, assignment, generic relations, attachments, or existing comments. |
 | Pull request context | `adomi ado pr fetch <pull-request-id>` | Exports PR metadata, review threads, and readable comments under `.adomi/context/pull-requests/`. |
+| Pull request discovery | `adomi ado pr list --source <branch> --status all` | Finds repository PRs without work-item links, with optional target/status filters and bounded automatic pagination. Returns compact JSON. |
 | PR work-item links | `adomi ado pr link <pull-request-id> --work-item <work-item-id>` | Links explicitly named work items to a PR. Repeat `--work-item` for more IDs; no unlink, list, generic relation edit, or work-item field/state mutation is provided. |
 | Pull request maintenance | `adomi ado pr ensure`, `comment`, `reply`, `resolve`, `reopen` | Maintains the active branch PR or explicit review threads. |
 | PR lifecycle and votes | `adomi ado pr complete`, `auto-complete`, `cancel-auto-complete`, `abandon`, `approve`, `approve-with-suggestions`, `reject` | Performs only the explicitly named governance write. Completion respects branch policies; votes apply only to the authenticated user. |
 | Wiki context | `adomi ado wiki fetch ...` | Exports one page or a recursive subtree as Markdown and metadata. It does not search wikis or download linked attachments. |
-| Pipeline status | `adomi ado pipeline list`, `get` | Returns one-shot compact JSON for in-progress or the most recent (`--last <N>`) Build runs, or one run's overall status. It does not poll, fetch execution detail, inspect classic Release deployments, or mutate pipelines. |
+| Pipeline status | `adomi ado pipeline list`, `get` | Returns one-shot compact JSON for in-progress or the most recent (`--last <N>`) Build runs, optionally filtered server-side with `--branch <branch>`, or one run's overall status. It does not poll, fetch execution detail, inspect classic Release deployments, or mutate pipelines. |
+| Pipeline execution evidence | `adomi ado pipeline inspect <run-id>` | Creates a separate local snapshot of observed stage/job/task results, failed-task logs, and published test results. Requires Build and Test read permissions; does not infer execution from overall success. |
 
 See the [Azure DevOps reference](docs/azure-devops.md) for the complete command forms, outputs, permissions, and limitations.
 

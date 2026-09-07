@@ -144,11 +144,11 @@ func runHelp(t *testing.T, runner Runner, args []string) string {
 
 type fakeADOClient struct{}
 
-func (fakeADOClient) ListInProgressPipelineRuns(context.Context) ([]ado.PipelineRun, error) {
+func (fakeADOClient) ListInProgressPipelineRuns(context.Context, ...ado.PipelineRunListOptions) ([]ado.PipelineRun, error) {
 	return []ado.PipelineRun{}, nil
 }
 
-func (fakeADOClient) ListRecentPipelineRuns(context.Context, int) ([]ado.PipelineRun, error) {
+func (fakeADOClient) ListRecentPipelineRuns(context.Context, int, ...ado.PipelineRunListOptions) ([]ado.PipelineRun, error) {
 	return []ado.PipelineRun{}, nil
 }
 

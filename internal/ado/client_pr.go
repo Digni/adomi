@@ -80,6 +80,9 @@ func (c *Client) ListPullRequests(ctx context.Context, opts PullRequestListOptio
 	if status == "" {
 		status = "active"
 	}
+	if opts.Top < 0 || opts.Skip < 0 {
+		return nil, fmt.Errorf("pull request list pagination values must not be negative")
+	}
 	requestURL := c.pullRequestsURL(opts.RepositoryID)
 	parsed, err := url.Parse(requestURL)
 	if err != nil {
@@ -92,6 +95,12 @@ func (c *Client) ListPullRequests(ctx context.Context, opts PullRequestListOptio
 	}
 	if opts.TargetRefName != "" {
 		query.Set("searchCriteria.targetRefName", opts.TargetRefName)
+	}
+	if opts.Top > 0 {
+		query.Set("$top", strconv.Itoa(opts.Top))
+	}
+	if opts.Skip > 0 {
+		query.Set("$skip", strconv.Itoa(opts.Skip))
 	}
 	parsed.RawQuery = query.Encode()
 
@@ -109,6 +118,18 @@ func (c *Client) ListPullRequests(ctx context.Context, opts PullRequestListOptio
 
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
 		return nil, responseError("listing Azure DevOps pull requests", 0, resp)
+	}
+
+	if opts.Top > 0 {
+		body, err := readPullRequestListResponseBody(resp.Body, resp.ContentLength)
+		if err != nil {
+			return nil, fmt.Errorf("decoding Azure DevOps pull requests: %w", err)
+		}
+		prs, err := decodePullRequestListResponse(body)
+		if err != nil {
+			return nil, fmt.Errorf("decoding Azure DevOps pull requests: %w", err)
+		}
+		return prs, nil
 	}
 
 	var prs PullRequestsResponse

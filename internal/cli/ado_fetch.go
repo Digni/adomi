@@ -58,6 +58,19 @@ func (r Runner) runADOFetch(args []string, stdout, stderr io.Writer) error {
 	if err != nil {
 		return err
 	}
+	var comments map[int][]ado.WorkItemReadComment
+	if fetchArgs.includeComments {
+		reader, ok := client.(workItemCommentReader)
+		if !ok {
+			return fmt.Errorf("configured Azure DevOps client does not support work item comment reads")
+		}
+		comments, err = fetchWorkItemComments(ctx, reader, tree, func(msg string) {
+			fw.writeMessage(msg)
+		})
+		if err != nil {
+			return err
+		}
+	}
 
 	attachmentCount := 0
 	outputDir, err := deps.ExportContext(ctx, client, ado.ExportOptions{
@@ -65,6 +78,7 @@ func (r Runner) runADOFetch(args []string, stdout, stderr io.Writer) error {
 		Profile:   profileConfig.Name,
 		Project:   profileConfig.Project,
 		CreatedAt: deps.Now(),
+		Comments:  comments,
 	}, tree, func(msg string) {
 		fw.writeMessage(msg)
 		attachmentCount++
@@ -94,15 +108,16 @@ type fetchJSONResult struct {
 }
 
 type fetchArgs struct {
-	workItemID int
-	profile    string
-	global     bool
-	json       bool
+	workItemID      int
+	profile         string
+	global          bool
+	json            bool
+	includeComments bool
 }
 
 func parseFetchArgs(args []string) (fetchArgs, error) {
 	if len(args) == 0 {
-		return fetchArgs{}, fmt.Errorf("usage: adomi ado fetch <work-item-id> [--profile <profile-name>] [--global] [--json]")
+		return fetchArgs{}, fmt.Errorf("usage: adomi ado fetch <work-item-id> [--profile <profile-name>] [--global] [--json] [--include-comments]")
 	}
 	workItemID, err := strconv.Atoi(args[0])
 	if err != nil || workItemID <= 0 {
@@ -111,6 +126,7 @@ func parseFetchArgs(args []string) (fetchArgs, error) {
 	var profile string
 	var global bool
 	var json bool
+	var includeComments bool
 	for i := 1; i < len(args); i++ {
 		switch args[i] {
 		case "--profile":
@@ -123,9 +139,14 @@ func parseFetchArgs(args []string) (fetchArgs, error) {
 			global = true
 		case "--json":
 			json = true
+		case "--include-comments":
+			if includeComments {
+				return fetchArgs{}, fmt.Errorf("--include-comments may be specified only once")
+			}
+			includeComments = true
 		default:
 			return fetchArgs{}, fmt.Errorf("unknown argument %q", args[i])
 		}
 	}
-	return fetchArgs{workItemID: workItemID, profile: profile, global: global, json: json}, nil
+	return fetchArgs{workItemID: workItemID, profile: profile, global: global, json: json, includeComments: includeComments}, nil
 }

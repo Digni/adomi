@@ -218,6 +218,8 @@ type PullRequestListOptions struct {
 	SourceRefName string
 	TargetRefName string
 	Status        string
+	Top           int
+	Skip          int
 }
 
 type PullRequestCreateOptions struct {
