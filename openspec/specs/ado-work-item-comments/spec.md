@@ -36,7 +36,7 @@ The system SHALL request ascending non-deleted comments through the Comments rea
 - **THEN** the command exits nonzero with empty stdout before replacing the prior work-item export
 
 ### Requirement: Comment artifacts distinguish omission from empty discussion
-With comments enabled, the bundle SHALL include `comments/<item-id>.json` containing `workItemId` and a non-null `comments` array, an index `commentsPath` for every exported item, and an HTML-escaped discussion section in that item's existing HTML file. Existing item payloads and tree structure SHALL remain unchanged. Plain stdout SHALL remain path-only and JSON stdout SHALL remain exactly the existing `path`, `workItems`, and `attachments` shape in both modes. Comment progress SHALL NOT change attachment counts.
+With comments enabled, the bundle SHALL include `comments/<item-id>.json` containing `workItemId` and a non-null `comments` array, an index `commentsPath` for every exported item, and an HTML-escaped discussion section in that item's existing HTML file. Existing item payloads and tree structure SHALL remain unchanged. Plain stdout SHALL remain path-only and JSON stdout SHALL remain exactly the existing `path`, `workItems`, and `attachments` shape in both modes. Comment-read progress SHALL NOT change attachment counts. Downloaded inline comment images SHALL count as downloaded files and SHALL be mapped to their comment IDs in the asset manifest; comment text SHALL remain unchanged.
 
 #### Scenario: Item has no comments
 - **WHEN** a complete successful read returns no non-deleted comments
@@ -49,3 +49,7 @@ With comments enabled, the bundle SHALL include `comments/<item-id>.json` contai
 #### Scenario: Default refresh replaces a previous enriched bundle
 - **WHEN** a successful fetch without `--include-comments` refreshes an earlier enriched export
 - **THEN** the refreshed bundle has no stale comment files, index fields, or discussion sections
+
+#### Scenario: Included comment contains images
+- **WHEN** discussion is requested and a comment contains supported HTML or Markdown image references
+- **THEN** the export downloads those images according to ado-work-item-assets and records their comment provenance

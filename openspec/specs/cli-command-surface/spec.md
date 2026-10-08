@@ -171,7 +171,7 @@ The system SHALL preserve Azure DevOps-specific commands under `adomi ado`.
 
 ### Requirement: Work item fetch downloads attachments
 
-The system SHALL download Azure DevOps work item attachments for every work item included in a successful `adomi ado fetch <work-item-id>` export and SHALL expose each exported work item's attachment directory in the export index.
+The system SHALL download Azure DevOps work item attachments for every work item included in a successful `adomi ado fetch <work-item-id>` export and SHALL discover inline work-item images according to ado-work-item-assets. It SHALL expose each exported work item's attachment directory and asset manifest in the export index. Existing path-only stdout and the JSON keys path, workItems, attachments SHALL remain unchanged; attachments SHALL count physical downloaded files including inline images.
 
 #### Scenario: Fetch downloads requested work item attachments
 - **WHEN** the user runs `adomi ado fetch <work-item-id>` with valid configuration and credentials and the requested work item has attachment relations
@@ -190,7 +190,7 @@ The system SHALL download Azure DevOps work item attachments for every work item
 - **THEN** `index.json` includes each exported work item's relative POSIX attachment directory path as `attachments/<exported-work-item-id>` with no trailing slash
 
 #### Scenario: Work item without attachments does not require attachment files
-- **WHEN** an exported work item has no attachment relations
+- **WHEN** an exported work item has neither attachment relations nor supported inline images
 - **THEN** the command does not create attachment files for that work item and the rest of the work item context export can still succeed
 
 #### Scenario: Attachment downloads complete before final metadata is written
@@ -200,6 +200,10 @@ The system SHALL download Azure DevOps work item attachments for every work item
 #### Scenario: Attachment download failure leaves stdout empty
 - **WHEN** `adomi ado fetch <work-item-id>` cannot download an attachment for any exported work item because Azure DevOps returns an error response or a network error occurs
 - **THEN** the command exits non-zero and stdout is empty
+
+#### Scenario: Fetch help explains image evidence
+- **WHEN** work-item fetch help is requested
+- **THEN** help explains inline image discovery, opt-in comment images, asset manifest paths, skipped unsupported references, and file-count semantics
 
 ### Requirement: CLI stream behavior
 
