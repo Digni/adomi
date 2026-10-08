@@ -199,7 +199,7 @@ WORK_ITEM_CONTEXT=$(adomi ado fetch 12345)
 ls "$WORK_ITEM_CONTEXT"
 ```
 
-Progress and the final export summary remain visible on stderr while the shell captures only the path from stdout. Add `--json` when an agent or script needs the path plus work-item and attachment counts as one structured result.
+Progress and the final export summary remain visible on stderr while the shell captures only the path from stdout. Add `--json` when an agent or script needs the path plus work-item and attachment counts as one structured result. The attachment count includes physical downloaded files, including inline images; skipped references and comment reads do not count.
 
 The printed directory is `.adomi/context/work-items/12345/` below the repository root. It can contain:
 
@@ -208,12 +208,16 @@ index.json
 tree.json
 items/<work-item-id>.json
 html/<work-item-id>.html
+assets/<work-item-id>.json
 attachments/<work-item-id>/...
+comments/<work-item-id>.json    # with --include-comments
 ```
 
 The tree contains the requested item, its parent chain up to an Epic or the last available parent, and the requested item's direct children. It does not recursively fetch every descendant.
 
-Point your agent at `index.json` and `tree.json` first, then the item or attachment files relevant to the task.
+Point your agent at `index.json` and `tree.json` first. Follow each item's `assetsPath` to its asset manifest, which maps attachments and inline images to their sources and local paths. Inspect those image files before interpreting screenshots. Entries marked `skipped` have a reason and no local file.
+
+HTML images in work-item string fields are discovered automatically. Add `--include-comments` for HTML or Markdown images in current discussion. Inline downloads support only work-item attachment endpoints on the configured scheme and host within the configured organization or collection. Raw item/comment content stays unchanged and HTML remains escaped; use the manifest paths to open images.
 
 ### Option B: pull request context
 

@@ -32,9 +32,16 @@ Flags:
 stdout:
   Prints only the exported work item context directory path on success, or one JSON object with --json.
   Progress and summary lines are written to stderr.
-  With --include-comments, comments are written under comments/<work-item-id>.json and appended to each HTML item; stdout and attachment counts remain unchanged.
+  Attachment counts describe physical downloaded files, including inline images; skipped references and comment reads do not count.
+
+Image evidence:
+  Downloads attachments and discovers HTML inline images in every string field. Comment images require --include-comments and support HTML or Markdown.
+  Inline downloads support only work-item attachment endpoints in the same configured organization or collection, scheme, and host.
+  Read assetsPath in index.json, then assets/<work-item-id>.json for local paths, sources, and skipped references with reasons.
+  Downloaded files are stored under attachments/<work-item-id>/ and shared references are downloaded once per item. HTML remains escaped.
 
 Comments:
+  With --include-comments, comments are written under comments/<work-item-id>.json and appended as escaped text to each HTML item. The stdout shape is unchanged.
   Discussion is read for the root, parent-chain, and direct-child items already included in the export. It requires work-item read permission; retrieval failure leaves stdout empty and does not replace an existing export.
 `
 

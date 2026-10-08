@@ -140,9 +140,13 @@ The positive work item ID is required. Adomi fetches:
 - the requested work item;
 - its parent chain until an Epic, no parent, or an already visited item;
 - the requested item's direct children; and
-- attached files for every included item.
+- attached files and supported inline images for every included item.
 
 It does not recursively fetch every descendant.
+
+Inline discovery reads HTML `img src` references in every string-valued field, including descriptions, repro steps, acceptance criteria, and custom fields. With `--include-comments`, it also discovers HTML or Markdown images according to the comment format; missing or unknown formats support Markdown and embedded HTML. Markdown code examples do not trigger image downloads. Ordinary hyperlinks, CSS images, and `srcset` are not discovered.
+
+Inline downloads accept absolute, root-relative, and project-relative work-item attachment endpoints on the configured scheme and host within the same configured organization or collection. External hosts, other organizations, non-attachment endpoints, data URLs, and unsafe paths are recorded as `skipped` with a reason, without a request. Existing redirect rejection, timeouts, and the 64 MiB per-file limit apply. A supported download failure or non-image inline response fails the export, leaves success stdout empty, and prevents final metadata publication; files already written during that attempt may remain.
 
 Add `--include-comments` to retrieve current non-deleted discussion for each distinct exported item, including parents and direct children. This requires work-item read permission (`vso.work`). Ascending paginated reads preserve comment identity, current text/version, and available author, dates, format, and source URL; unavailable optional metadata is null. Historical revisions and deleted bodies are not exported. Reads are limited to 1,000 pages and 100,000 comments per item, with 8 MiB per response. Any comment-read failure exits before replacing the prior export. Attachment or filesystem failures retain the existing export failure behavior.
 
@@ -158,7 +162,7 @@ With `--json`, success instead prints:
 {"path":".adomi/context/work-items/12345","workItems":3,"attachments":2}
 ```
 
-Progress is reported on stderr as each work item is fetched and immediately after each attachment file is written. A final stderr summary reports the exported work-item and attachment counts.
+Progress is reported on stderr as each work item is fetched and immediately after each file is written. The `attachments` count and final stderr summary count physical downloaded files, including inline images. Shared references across attachment relations, fields, and included comments download once per item. Comment reads and skipped references do not increase this count. The stdout keys remain `path`, `workItems`, and `attachments`.
 
 The bundle contains:
 
@@ -167,11 +171,14 @@ index.json
 tree.json
 items/<included-work-item-id>.json
 html/<included-work-item-id>.html
-attachments/<included-work-item-id>/...   # when attachments exist
+assets/<included-work-item-id>.json
+attachments/<included-work-item-id>/...   # when files are downloaded
 comments/<included-work-item-id>.json    # with --include-comments
 ```
 
-Start with `index.json` and `tree.json`, then inspect the relevant item and attachment files. With `--include-comments`, each index item adds `commentsPath`, each comment file contains `{workItemId,comments:[...]}`, and existing HTML gains an escaped discussion section. Empty discussion is explicit. Item payloads and tree structure remain unchanged. Comment progress stays on stderr and does not affect attachment counts or either stdout shape. A successful refresh without the flag removes previous comment files, references, and discussion sections.
+Start with `index.json` and `tree.json`, then follow each item's `assetsPath` to `assets/<included-work-item-id>.json`. Each manifest contains `workItemId` and an `assets` array, empty when there are no references. Every asset has its original `url`, `status`, and `sources`. Sources identify the original reference URL and `kind` (`attachment`, `field`, or `comment`), with the field name or comment ID when applicable. Downloaded entries have a `name` and export-relative `path`; skipped entries have a `reason` and no local path. Inspect local image files before drawing conclusions about screenshots. Filenames retain readable names and image extensions while avoiding case-insensitive collisions.
+
+With `--include-comments`, each index item also adds `commentsPath`, each comment file contains `{workItemId,comments:[...]}`, and existing HTML gains an escaped discussion section. Empty discussion is explicit. Raw item/comment payloads and tree structure remain unchanged, and HTML remains escaped rather than rendering inline images. Comment progress stays on stderr; downloaded comment images count as files. A successful refresh without the flag removes previous comment files, comment-only images and sources, index comment references, and discussion sections.
 
 ### Add a text comment
 

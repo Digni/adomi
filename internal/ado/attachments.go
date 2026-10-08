@@ -4,10 +4,8 @@ import (
 	"context"
 	"fmt"
 	"net/url"
-	"os"
 	"path"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"unicode"
 )
@@ -28,6 +26,11 @@ type AttachmentSummary struct {
 func FilenameForAttachment(relation Relation, ordinal int) string {
 	name := attributeName(relation)
 	if name == "" {
+		if parsed, err := url.Parse(relation.URL); err == nil {
+			name = strings.TrimSpace(parsed.Query().Get("fileName"))
+		}
+	}
+	if name == "" {
 		name = urlBasename(relation.URL)
 	}
 	if name == "" {
@@ -37,39 +40,19 @@ func FilenameForAttachment(relation Relation, ordinal int) string {
 }
 
 func DownloadAttachments(ctx context.Context, downloader AttachmentDownloader, outputDir string, item WorkItem, progress ProgressFunc) ([]AttachmentSummary, error) {
-	relations := item.AttachmentRelations()
-	if len(relations) == 0 {
-		return nil, nil
+	// Keep relation-only callers on the same writer and filename allocator as
+	// full work-item exports, without discovering inline content for this helper.
+	relationsOnly := WorkItem{ID: item.ID, Relations: item.Relations}
+	manifest, err := downloadWorkItemAssets(ctx, downloader, outputDir, relationsOnly, nil, ExportOptions{}, progress)
+	if err != nil {
+		return nil, err
 	}
-
-	itemDir := filepath.Join(outputDir, "attachments", strconv.Itoa(item.ID))
-	if err := os.MkdirAll(itemDir, 0o755); err != nil {
-		return nil, fmt.Errorf("creating attachment directory: %w", err)
-	}
-
-	used := map[string]int{}
-	summaries := make([]AttachmentSummary, 0, len(relations))
-	for i, relation := range relations {
-		filename := uniqueFilename(FilenameForAttachment(relation, i+1), used)
-		data, err := downloader.Download(ctx, relation.URL)
-		if err != nil {
-			return nil, fmt.Errorf("downloading attachment %q for work item %d: %w", filename, item.ID, err)
+	var summaries []AttachmentSummary
+	for _, asset := range manifest.Assets {
+		if asset.Status == "downloaded" {
+			summaries = append(summaries, AttachmentSummary{WorkItemID: item.ID, Name: asset.Name, Path: asset.Path, URL: asset.URL})
 		}
-
-		diskPath := filepath.Join(itemDir, filename)
-		relativePath := filepath.ToSlash(filepath.Join("attachments", strconv.Itoa(item.ID), filename))
-		if err := os.WriteFile(diskPath, data, 0o644); err != nil {
-			return nil, fmt.Errorf("writing attachment %q for work item %d: %w", filename, item.ID, err)
-		}
-		progress.report(fmt.Sprintf("Downloaded attachment %s for work item %d", filename, item.ID))
-		summaries = append(summaries, AttachmentSummary{
-			WorkItemID: item.ID,
-			Name:       filename,
-			Path:       relativePath,
-			URL:        relation.URL,
-		})
 	}
-
 	return summaries, nil
 }
 
@@ -152,23 +135,27 @@ func truncateFilename(name string, limit int) string {
 }
 
 func uniqueFilename(filename string, used map[string]int) string {
-	used[filename]++
-	if used[filename] == 1 {
-		return filename
-	}
-
+	key := strings.ToLower(filename)
 	ext := filepath.Ext(filename)
 	stem := strings.TrimSuffix(filename, ext)
-	suffix := fmt.Sprintf("-%d", used[filename])
-	candidate := fmt.Sprintf("%s%s%s", stem, suffix, ext)
-	if len(candidate) <= maxFilenameLength {
-		return candidate
+	for ordinal := used[key] + 1; ; ordinal++ {
+		candidate := filename
+		if ordinal > 1 {
+			suffix := fmt.Sprintf("-%d", ordinal)
+			stemLimit := maxFilenameLength - len(suffix) - len(ext)
+			if stemLimit <= 0 {
+				candidate = truncateStringBytes(filename, maxFilenameLength-len(suffix)) + suffix
+			} else {
+				candidate = truncateStringBytes(stem, stemLimit) + suffix + ext
+			}
+		}
+		candidateKey := strings.ToLower(candidate)
+		if used[candidateKey] == 0 {
+			used[key] = ordinal
+			used[candidateKey] = 1
+			return candidate
+		}
 	}
-	stemLimit := maxFilenameLength - len(suffix) - len(ext)
-	if stemLimit <= 0 {
-		return truncateFilename(candidate, maxFilenameLength)
-	}
-	return fmt.Sprintf("%s%s%s", truncateStringBytes(stem, stemLimit), suffix, ext)
 }
 
 func truncateStringBytes(value string, limit int) string {

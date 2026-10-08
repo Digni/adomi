@@ -8,7 +8,7 @@ Instead of copying source material into a chat, use the `adomi` CLI to export wo
 
 ## Why Adomi
 
-- **Context before code.** Fetch the work item hierarchy, direct children, attachments, pull request discussions, or selected wiki pages into the current Git repository.
+- **Context before code.** Fetch the work item hierarchy, direct children, attachments and inline images, pull request discussions, or selected wiki pages into the current Git repository.
 - **One workflow for humans and agents.** Commands keep success output data-only, so paths, IDs, and JSON can be passed directly into scripts or agent workflows.
 - **Credentials stay out of the repository.** Profiles live in YAML; PAT values are entered through `adomi ado login` and stored in the operating system keyring.
 - **Writes stay explicit.** Adomi can add text comments, maintain pull requests and selected review threads, complete or abandon a PR, schedule or cancel auto-completion, and cast the authenticated user's reviewer vote. Required branch policies remain enforced; arbitrary reviewer management and policy bypass are unavailable.
@@ -26,7 +26,7 @@ The core loop is simple:
 | --- | --- | --- |
 | Configuration and credentials | `adomi config init`, `adomi ado login` | Repository or global profiles with PAT values kept in the OS keyring. |
 | Agent integration | `adomi agent skill --provider <name>` | Installs an Adomi skill globally or in the current project for Codex, OpenCode, Pi, GitHub Copilot, Cursor, or Claude. Existing skills require confirmation or `--force`/`--yes` to replace. |
-| Work item context | `adomi ado fetch <work-item-id> [--include-comments]` | Exports the parent chain, direct children, JSON/HTML, attachments, and optional current discussion under `.adomi/context/work-items/`. |
+| Work item context | `adomi ado fetch <work-item-id> [--include-comments]` | Exports the parent chain, direct children, JSON/HTML, attachments, inline images with asset manifests, and optional current discussion under `.adomi/context/work-items/`. |
 | Work item comments | `adomi ado comment <work-item-id> ...` | Adds one text comment. It cannot update fields, state, assignment, generic relations, attachments, or existing comments. |
 | Pull request context | `adomi ado pr fetch <pull-request-id>` | Exports PR metadata, review threads, and readable comments under `.adomi/context/pull-requests/`. |
 | Pull request discovery | `adomi ado pr list --source <branch> --status all` | Finds repository PRs without work-item links, with optional target/status filters and bounded automatic pagination. Returns compact JSON. |
@@ -97,6 +97,8 @@ ls "$CONTEXT"
 ```
 
 The export is local working context. Add `.adomi/` to the target repository's `.gitignore` and do not commit fetched artifacts or credentials.
+
+For work-item screenshots, follow `assetsPath` in `index.json` to `assets/<item-id>.json`, then inspect the local files under `attachments/<item-id>/`. The manifest maps files to their field, comment, or attachment sources and records unsupported references as `skipped` with a reason. Inline downloads support only work-item attachment endpoints in the configured organization or collection. Add `--include-comments` to include images from discussion. The attachment count includes downloaded inline images; raw source content is preserved and HTML remains escaped.
 
 For global configuration, multiple profiles, pull request context, common setup errors, and the alternative first workflow, follow [Getting started](docs/getting-started.md).
 

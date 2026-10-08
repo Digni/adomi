@@ -13,6 +13,7 @@ import (
 
 type ExportOptions struct {
 	RepoRoot  string
+	BaseURL   string
 	Profile   string
 	Project   string
 	CreatedAt time.Time
@@ -36,6 +37,7 @@ type IndexItem struct {
 	Path            string `json:"path"`
 	HTMLPath        string `json:"htmlPath"`
 	AttachmentsPath string `json:"attachmentsPath"`
+	AssetsPath      string `json:"assetsPath"`
 	CommentsPath    string `json:"commentsPath,omitempty"`
 }
 
@@ -67,15 +69,22 @@ func ExportContext(ctx context.Context, downloader AttachmentDownloader, opts Ex
 		}
 	}
 
-	if downloader != nil {
-		for _, item := range tree.WorkItems {
-			if _, err := DownloadAttachments(ctx, downloader, outputDir, item, progress); err != nil {
-				return "", err
-			}
+	manifests := make(map[int]WorkItemAssets, len(tree.WorkItems))
+	for _, item := range tree.WorkItems {
+		manifest, err := downloadWorkItemAssets(ctx, downloader, outputDir, item, opts.Comments[item.ID], opts, progress)
+		if err != nil {
+			return "", err
 		}
+		manifests[item.ID] = manifest
+	}
+	if err := os.MkdirAll(filepath.Join(outputDir, "assets"), 0o755); err != nil {
+		return "", fmt.Errorf("creating asset manifest directory: %w", err)
 	}
 
 	for _, item := range tree.WorkItems {
+		if err := writePrettyJSON(filepath.Join(outputDir, "assets", strconv.Itoa(item.ID)+".json"), manifests[item.ID]); err != nil {
+			return "", err
+		}
 		itemPath := filepath.Join(outputDir, "items", strconv.Itoa(item.ID)+".json")
 		if err := writePrettyJSON(itemPath, item); err != nil {
 			return "", err
@@ -124,6 +133,7 @@ func newIndex(opts ExportOptions, tree *WorkItemTree) Index {
 			Path:            filepath.ToSlash(filepath.Join("items", id+".json")),
 			HTMLPath:        filepath.ToSlash(filepath.Join("html", id+".html")),
 			AttachmentsPath: filepath.ToSlash(filepath.Join("attachments", id)),
+			AssetsPath:      filepath.ToSlash(filepath.Join("assets", id+".json")),
 		})
 		if opts.Comments != nil {
 			items[len(items)-1].CommentsPath = filepath.ToSlash(filepath.Join("comments", id+".json"))

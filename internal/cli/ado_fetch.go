@@ -75,6 +75,7 @@ func (r Runner) runADOFetch(args []string, stdout, stderr io.Writer) error {
 	attachmentCount := 0
 	outputDir, err := deps.ExportContext(ctx, client, ado.ExportOptions{
 		RepoRoot:  repoRoot,
+		BaseURL:   profileConfig.BaseURL,
 		Profile:   profileConfig.Name,
 		Project:   profileConfig.Project,
 		CreatedAt: deps.Now(),

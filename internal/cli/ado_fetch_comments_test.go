@@ -33,7 +33,7 @@ func TestParseFetchArgsAcceptsCommentsOnce(t *testing.T) {
 
 func TestADOFetchHelpDescribesOptionalComments(t *testing.T) {
 	help := runHelp(t, Runner{deps: Dependencies{}}, []string{"ado", "fetch", "--help"})
-	for _, want := range []string{"--include-comments", "non-deleted", "comments/<work-item-id>.json", "attachment counts remain unchanged", "work-item read permission"} {
+	for _, want := range []string{"--include-comments", "non-deleted", "comments/<work-item-id>.json", "work-item read permission", "inline images", "assets/<work-item-id>.json", "skipped", "physical downloaded files", "same configured organization", "HTML remains escaped"} {
 		if !strings.Contains(help, want) {
 			t.Fatalf("help = %q, want %q", help, want)
 		}
